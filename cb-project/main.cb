@@ -1,0 +1,5 @@
+import ttff;
+
+void init() {
+    int i,j;
+}
