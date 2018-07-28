@@ -50,7 +50,7 @@ parserUnit fname input = do
     Left  err -> fail $ show err
     Right u   -> do
       decls <- parseImportDecls $ imports u
-      return $ u { declarations = decls ++ (declarations u) }
+      return $ u { declarations = decls ++ declarations u }
 
 parseImportDecls :: [Import] -> Cb [Declaration]
 parseImportDecls []  = pure []

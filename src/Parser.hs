@@ -36,6 +36,7 @@ import           System.IO.Error                ( tryIOError )
 import qualified System.Directory              as Dir
                                                 ( makeAbsolute )
 import qualified Data.Map.Strict               as Map
+import           Data.Functor
 
 import           IState
 import           Ast
@@ -91,18 +92,18 @@ pushDeclToScope decl@(UndefineFunction _ _ funcName _) = do
   case searchByScope funcName ist of
     Nothing         -> insertDeclToScope funcName decl
     Just Function{} -> pure ()
-    _               -> fail "中文字符串"
+    _               -> fail "存在重复声明"
 pushDeclToScope decl@(Function _ _ funcName _ _) = do
   ist <- get
   case searchByScope funcName ist of
     Nothing                 -> insertDeclToScope funcName decl
     Just UndefineFunction{} -> insertDeclToScope funcName decl
-    _                       -> fail "中文字符串"
+    _                       -> fail "存在重复声明"
 pushDeclToScope decl = do
   ist <- get
   let name = declName decl
   case searchByScope name ist of
-    Just _  -> fail "中文字符串"
+    Just _  -> fail "存在重复声明"
     Nothing -> insertDeclToScope name decl
 
 
@@ -208,23 +209,23 @@ expr = expr_assign <|> expr_opassign <|> expr10
   op ls = Binary <$> getFC <*> orOp ls
   opassign_op =
     rword "+="
-      *>  pure "+"
+      $>  "+"
       <|> rword "-="
-      *>  pure "-"
+      $>  "-"
       <|> rword "*="
-      *>  pure "*"
+      $>  "*"
       <|> rword "/="
-      *>  pure "/"
+      $>  "/"
       <|> rword "%="
-      *>  pure "%"
+      $>  "%"
       <|> rword "&="
-      *>  pure "&"
+      $>  "&"
       <|> rword "|="
-      *>  pure "|"
+      $>  "|"
       <|> rword "^="
-      *>  pure "^"
+      $>  "^"
       <|> rword "<<="
-      *>  pure "<<"
+      $>  "<<"
       <|> rword ">>="
       *>  pure ">>"
       <?> "opassign_op"
@@ -418,8 +419,10 @@ defunion =
 
 typedef :: CbParser Declaration
 typedef =
-  rword "typedef" *> (Typedef <$> getFC <*> type_ <*> identifier) <* lchar ';'
-  >>= addType
+  rword "typedef"
+    *>  (Typedef <$> getFC <*> type_ <*> identifier)
+    <*  lchar ';'
+    >>= addType
 
 params :: Char -> CbParser [Param]
 params c = P.sepBy param (lchar c)
@@ -439,30 +442,30 @@ type_ =
  where
   typeSign =
     rword "int"
-      *>  pure CbInt
+      $>  CbInt
       <|> rword "bool"
-      *>  pure CbBool
+      $>  CbBool
       <|> rword "char"
-      *>  pure CbChar
+      $>  CbChar
       <|> rword "void"
-      *>  pure CbVoid
+      $>  CbVoid
       <|> rword "long"
-      *>  pure CbLong
+      $>  CbLong
       <|> rword "float"
-      *>  pure CbFloat
+      $>  CbFloat
       <|> rword "double"
-      *>  pure CbDouble
+      $>  CbDouble
       <|> P.try (rword "unsigned" *> rword "int")
-      *>  pure CbUInt
+      $>  CbUInt
       <|> P.try (rword "unsigned" *> rword "char")
-      *>  pure CbChar
+      $>  CbChar
       <|> P.try (rword "unsigned" *> rword "float")
-      *>  pure CbUFloat
+      $>  CbUFloat
       <|> P.try (rword "unsigned" *> rword "double")
-      *>  pure CbDouble
+      $>  CbDouble
       <|> rword "unsigned"
       *>  rword "long"
-      *>  pure CbULong
+      $>  CbULong
       <|> CbUnknown
       <$> identifier
 
@@ -555,7 +558,7 @@ natural = lexeme
   )
 
 bool :: Parsing m => m Bool
-bool = rword "true" *> pure True <|> rword "false" *> pure False
+bool = rword "true" $> True <|> rword "false" $> False
 
 semi :: Parsing m => m String
 semi = symbol ";"

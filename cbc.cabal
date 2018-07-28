@@ -4,7 +4,7 @@ cabal-version: >= 1.10
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 05d9b8ed300db58d20d7c893e75bcf7eeb83e3cf07e3ea7eb752b507d5534395
+-- hash: c891f8713521045c025cc9aa0dd8b1ccdd84033020e9a483478e671d9a4332ac
 
 name:           cbc
 version:        0.1.0.0
@@ -49,7 +49,8 @@ library
       IState
       Parser
       Project
-      Type
+      Type.Check
+      Type.Resolver
   other-modules:
       Paths_cbc
   default-language: Haskell2010
