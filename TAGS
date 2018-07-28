@@ -1,21 +1,0 @@
-
-c:/Users/makai/learn/haskell/cbc/test\Spec.hs,30
-main main0,1
-main main1,2
-
-c:/Users/makai/learn/haskell/cbc/src\Parser.hs,38
-module ParserParser0,1
-sc sc11,12
-
-c:/Users/makai/learn/haskell/cbc/src\Lib.hs,65
-module LibLib0,1
-someFunc someFunc4,5
-someFunc someFunc5,6
-
-c:/Users/makai/learn/haskell/cbc/Setup.hs,15
-main main1,2
-
-c:/Users/makai/learn/haskell/cbc/app\Main.hs,52
-module Main Main0,1
-main main4,5
-main main5,6

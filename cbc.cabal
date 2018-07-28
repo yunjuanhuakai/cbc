@@ -4,7 +4,7 @@ cabal-version: >= 1.10
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c891f8713521045c025cc9aa0dd8b1ccdd84033020e9a483478e671d9a4332ac
+-- hash: 771e2b103bcbc774733bb058cc4eba1ff6b053df665bc4d3cfd8f163bd008c34
 
 name:           cbc
 version:        0.1.0.0
@@ -50,6 +50,7 @@ library
       Parser
       Project
       Type.Check
+      Type.Compute
       Type.Resolver
   other-modules:
       Paths_cbc
