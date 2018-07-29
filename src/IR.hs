@@ -25,7 +25,6 @@ data Expr = Uni Op Expr
           | Addr Expr
           | Mem Expr
           | Var String
-          | Int Integer
           | Str String
           deriving (Show, Eq, Ord, Generic)
 

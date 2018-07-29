@@ -69,6 +69,7 @@ expr' (Dereference fc expr   ) = Dereference fc <$> expr' expr
 expr' (Member    fc name expr) = Member fc name <$> expr' expr
 expr' (PtrMember fc name expr) = PtrMember fc name <$> expr' expr
 expr' (Arrayref  fc ve   ie  ) = Arrayref fc <$> expr' ve <*> expr' ie
+expr' (Varable  fc name   t  ) = Varable fc name <$> type' t
 expr' e                        = pure e
 
 type' :: Type -> Cb Type

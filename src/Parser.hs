@@ -1,4 +1,4 @@
-{-# LANGUAGE ConstraintKinds, FlexibleContexts #-}
+{-# LANGUAGE ConstraintKinds, FlexibleContexts, NamedFieldPuns #-}
 
 module Parser where
 
@@ -138,8 +138,8 @@ primary =
     name <- identifier
     fc   <- getFC
     case searchByScope name ist of
-      Just _  -> pure $ Varable fc name
-      Nothing -> fail "match var fail"
+      Just Variable { declType } -> pure $ Varable fc name declType
+      _                          -> fail "match var fail"
 
 orOp :: Parsing m => [String] -> m String
 orOp ls = foldr1 (<|>) (map lstring ls)
@@ -459,10 +459,6 @@ type_ =
       $>  CbUInt
       <|> P.try (rword "unsigned" *> rword "char")
       $>  CbChar
-      <|> P.try (rword "unsigned" *> rword "float")
-      $>  CbUFloat
-      <|> P.try (rword "unsigned" *> rword "double")
-      $>  CbDouble
       <|> rword "unsigned"
       *>  rword "long"
       $>  CbULong

@@ -1,4 +1,4 @@
--- 类型定义的正确性、表达式有效性检测以及静态类型检测
+-- 类型定义的正确性以及静态类型检测
 module Type.Check where
 
 import           Ast

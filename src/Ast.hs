@@ -3,6 +3,7 @@
 module Ast where
 
 import qualified Data.Map.Strict               as Map
+import           Data.Maybe
 import           GHC.Generics                   ( Generic )
 import           Text.PrettyPrint.GenericPretty ( Out )
 
@@ -130,7 +131,7 @@ data Expr
   | Member FC String Expr
   | PtrMember FC String Expr
   | Arrayref FC Expr Expr
-  | Varable FC String
+  | Varable FC String Type
   | IntLiteral FC Int
   | FloatLiteral FC Double
   | StringLiteral FC String
@@ -168,8 +169,8 @@ data Type
   | CbBool
   | CbVoid
   | CbLong | CbULong
-  | CbFloat | CbUFloat
-  | CbDouble | CbUDouble
+  | CbFloat
+  | CbDouble
   | CbArray Type Int
   | CbPtr Type
   | CbStruct String [Param]
@@ -178,6 +179,71 @@ data Type
   | CbConst Type
   | CbUnknown String
   deriving (Eq, Show, Ord, Generic)
+
+typeIndex :: Type -> Int
+typeIndex CbBool      = 0
+
+typeIndex CbChar      = 1
+typeIndex CbInt       = 2
+typeIndex CbFloat     = 3
+typeIndex CbDouble    = 4
+typeIndex CbLong      = 5
+
+typeIndex CbUChar     = 6
+typeIndex CbUInt      = 7
+typeIndex CbULong     = 8
+-- const 不参与类型计算，只用作类型检查
+typeIndex (CbConst t) = typeIndex t
+typeIndex _           = 9
+
+typeTable :: [[Maybe Type]]
+typeTable =
+  [
+--             bool        | char          | int           | float         | double        | long          | uchar         | uint          | ulong         | other
+{- bool   -}  [Just CbBool , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing]
+{- char   -}, [Nothing     , Just CbInt    , Just CbInt    , Just CbFloat  , Just CbDouble , Just CbLong   , Just CbInt    , Just CbUInt   , Just CbULong  , Nothing]
+{- int    -}, [Nothing     , Just CbInt    , Just CbInt    , Just CbFloat  , Just CbDouble , Just CbLong   , Just CbInt    , Just CbUInt   , Just CbULong  , Nothing]
+{- float  -}, [Nothing     , Just CbFloat  , Just CbFloat  , Just CbFloat  , Just CbDouble , Just CbFloat  , Just CbFloat  , Just CbFloat  , Just CbFloat  , Nothing]
+{- double -}, [Nothing     , Just CbDouble , Just CbDouble , Just CbDouble , Just CbDouble , Just CbDouble , Just CbDouble , Just CbDouble , Just CbDouble , Nothing]
+{- long   -}, [Nothing     , Just CbLong   , Just CbLong   , Just CbFloat  , Just CbDouble , Just CbLong   , Just CbULong  , Just CbULong  , Just CbULong  , Nothing]
+{- uchar  -}, [Nothing     , Just CbInt    , Just CbInt    , Just CbFloat  , Just CbDouble , Just CbInt    , Just CbUInt   , Just CbUInt   , Just CbULong  , Nothing]
+{- uint   -}, [Nothing     , Just CbUInt   , Just CbUInt   , Just CbFloat  , Just CbDouble , Just CbLong   , Just CbUInt   , Just CbUInt   , Just CbULong  , Nothing]
+{- ulong  -}, [Nothing     , Just CbULong  , Just CbULong  , Just CbFloat  , Just CbDouble , Just CbULong  , Just CbULong  , Just CbULong  , Just CbULong  , Nothing]
+{- other  -}, [Nothing     , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing]
+  ]
+
+isUser :: Type -> Bool
+isUser CbStruct{} = True
+isUser CbUnion{}  = True
+isUser _          = False
+
+isPtr :: Type -> Bool
+isPtr (CbConst t) = isPtr t
+isPtr CbPtr{}     = True
+isPtr CbArray{}   = True
+isPtr _           = False
+
+isInteger :: Type -> Bool
+isInteger (CbConst t) = isInteger t
+isInteger t = t `elem` [CbInt, CbUInt, CbChar, CbUChar, CbLong, CbULong]
+
+isFloat :: Type -> Bool
+isFloat (CbConst t) = isFloat t
+isFloat t           = t `elem` [CbFloat, CbDouble]
+
+isNumber :: Type -> Bool
+isNumber t = isFloat t || isInteger t
+
+findMem :: Type -> String -> Maybe Param
+findMem t@(CbStruct _ params) name =
+  listToMaybe $ filter (\p -> name == paramName p) params
+findMem t@(CbUnion _ params) name =
+  listToMaybe $ filter (\p -> name == paramName p) params
+findMem t@(CbPtr (CbStruct _ params)) name =
+  listToMaybe $ filter (\p -> name == paramName p) params
+findMem t@(CbPtr (CbUnion _ params)) name =
+  listToMaybe $ filter (\p -> name == paramName p) params
+findMem _ _ = Nothing
 
 unknown :: Type -> Bool
 unknown (CbUnknown _) = True
