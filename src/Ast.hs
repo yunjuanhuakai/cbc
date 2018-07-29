@@ -212,10 +212,23 @@ typeTable =
 {- other  -}, [Nothing     , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing       , Nothing]
   ]
 
+-- 本函数的用处：当第一个等于或可提升为第二个类型时返回True
+pormot :: Type -> Type -> Bool
+pormot CbInt CbChar = True  -- 神奇的c语言标准：唯一一个可以向下隐式转换的类型
+pormot source target =
+  case typeTable !! typeIndex source !! typeIndex target of
+    Just t  -> t == target
+    Nothing -> False
+
 isUser :: Type -> Bool
 isUser CbStruct{} = True
 isUser CbUnion{}  = True
 isUser _          = False
+
+isBool :: Type -> Bool
+isBool (CbConst t) = isBool t
+isBool CbBool      = True
+isBool _           = False
 
 isPtr :: Type -> Bool
 isPtr (CbConst t) = isPtr t
@@ -239,11 +252,14 @@ findMem t@(CbStruct _ params) name =
   listToMaybe $ filter (\p -> name == paramName p) params
 findMem t@(CbUnion _ params) name =
   listToMaybe $ filter (\p -> name == paramName p) params
-findMem t@(CbPtr (CbStruct _ params)) name =
-  listToMaybe $ filter (\p -> name == paramName p) params
-findMem t@(CbPtr (CbUnion _ params)) name =
-  listToMaybe $ filter (\p -> name == paramName p) params
 findMem _ _ = Nothing
+
+findPtrMem :: Type -> String -> Maybe Param
+findPtrMem t@(CbPtr (CbStruct _ params)) name =
+  listToMaybe $ filter (\p -> name == paramName p) params
+findPtrMem t@(CbPtr (CbUnion _ params)) name =
+  listToMaybe $ filter (\p -> name == paramName p) params
+findPtrMem _ _ = Nothing
 
 unknown :: Type -> Bool
 unknown (CbUnknown _) = True
