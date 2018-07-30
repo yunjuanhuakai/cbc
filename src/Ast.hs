@@ -139,6 +139,14 @@ data Expr
   | BoolLiteral FC Bool
   deriving (Eq, Show, Ord, Generic)
 
+isLValue :: Expr -> Bool
+isLValue Varable{}     = True
+isLValue Member{}      = True
+isLValue PtrMember{}   = True
+isLValue Arrayref{}    = True
+isLValue Dereference{} = True
+isLValue _             = False
+
 ----------------------------- unit -----------------------------
 
 data Unit =
@@ -235,6 +243,19 @@ isPtr (CbConst t) = isPtr t
 isPtr CbPtr{}     = True
 isPtr CbArray{}   = True
 isPtr _           = False
+
+mem :: Type -> Maybe Type
+mem (CbConst t  ) = mem t
+mem (CbPtr   t  ) = Just t
+mem (CbArray t _) = Just t
+mem _             = Nothing
+
+isUnsigned :: Type -> Bool
+isUnsigned (CbConst t) = isUnsigned t
+isUnsigned t = t `elem` [CbUChar, CbUInt, CbULong]
+
+isSigned :: Type -> Bool
+isSigned t = isNumber t && not (isUnsigned t)
 
 isInteger :: Type -> Bool
 isInteger (CbConst t) = isInteger t

@@ -277,32 +277,32 @@ stmt =
     <$> getFC
     <*> expr
     <*  lchar ';'
-    <|> if_stmt
-    <|> while_stmt
-    <|> switch_stmt
+    <|> if_
+    <|> while_
+    <|> switch_
     <|> lchar '{'
-    *>  block_stmt True
+    *>  block_ True
     <*  lchar '}'
     <|> Label
     <$> getFC
     <*> identifier
     <*  lchar ':'
 
-panes_keyword s = rword s *> lchar '(' *> expr <* lchar ')'
+panes s = rword s *> lchar '(' *> expr <* lchar ')'
 
-if_stmt :: CbParser Stmt
-if_stmt = If <$> getFC <*> panes_keyword "if" <*> stmt <*> P.optional
-  (rword "else" *> stmt)
+if_ :: CbParser Stmt
+if_ =
+  If <$> getFC <*> panes "if" <*> stmt <*> P.optional (rword "else" *> stmt)
 
-switch_stmt :: CbParser Stmt
-switch_stmt =
+switch_ :: CbParser Stmt
+switch_ =
   Switch
     <$> getFC
-    <*> panes_keyword "switch"
-    <*> (lchar '{' *> P.many case_stmt <* lchar '}')
+    <*> panes "switch"
+    <*> (lchar '{' *> P.many case_ <* lchar '}')
 
-case_stmt :: CbParser Stmt
-case_stmt =
+case_ :: CbParser Stmt
+case_ =
   Case
     <$> getFC
     <*> (rword "case" *> expr <* lchar ':')
@@ -310,22 +310,21 @@ case_stmt =
     <|> Default
     <$> getFC
     <*> (rword "default" *> lchar ':' *> case_block)
- where
-  case_block = lchar '{' *> block_stmt True <* lchar '}' <|> block_stmt False
+  where case_block = lchar '{' *> block_ True <* lchar '}' <|> block_ False
 
-while_stmt :: CbParser Stmt
-while_stmt =
+while_ :: CbParser Stmt
+while_ =
   While
     <$> getFC
-    <*> panes_keyword "while"
+    <*> panes "while"
     <*> stmt
     <|> DoWhile
     <$> getFC
-    <*> (rword "do" *> lchar '{' *> block_stmt True <* lchar '}')
-    <*> panes_keyword "while"
+    <*> (rword "do" *> stmt)
+    <*> panes "while"
 
-block_stmt :: Bool -> CbParser Stmt
-block_stmt b = do
+block_ :: Bool -> CbParser Stmt
+block_ b = do
   ist <- get
   when b pushScope
   res <- P.many (P.try (Left <$> defvar) <|> (Right <$> stmt)) >>= block_stmt'
@@ -380,7 +379,7 @@ declfun' :: CbParser Declaration
 declfun' = declfun <* lchar ';'
 
 defun :: CbParser Declaration
-defun = declfun >>= defun' (lchar '{' *> block_stmt True <* lchar '}')
+defun = declfun >>= defun' (lchar '{' *> block_ True <* lchar '}')
  where
   defun' stmt (UndefineFunction fc t name params) =
     Function fc t name params <$> stmt
