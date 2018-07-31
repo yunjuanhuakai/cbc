@@ -4,8 +4,10 @@
 module Type.Check where
 
 import           Ast
-import Type.State
+import           Type.State
 import qualified Data.Map.Strict               as Map
+import           Data.Maybe
+import           Data.Functor
 import           Control.Monad.Trans.State.Strict
                                                 ( State(..)
                                                 , get
@@ -14,7 +16,39 @@ import           Control.Monad.Trans.State.Strict
                                                 )
 import           Control.Monad
 
----------------------- check decl -------------------------------
+---------------------- check other -------------------------------
+
+checkCond :: Expr -> CbCheck Expr
+checkCond e = do
+  t <- fmap (\s -> exprTypes s Map.! e) get
+  if isBool t then pure e else fail "作为条件的表达式不是bool类型的"
+
+checkCase :: Expr -> CbCheck Expr
+checkCase e = do
+  t <- fmap (\s -> exprTypes s Map.! e) get
+  if pormot t CbULong then pure e else fail "作为 case 语句的匹配值不符合为整数的限制"
+
+
+checkVar :: Declaration -> CbCheck Declaration
+checkVar d@(Variable fc t name init) = if isJust init
+  then do
+    vt <- fmap (\s -> exprTypes s Map.! fromJust init) get
+    if pormot vt t then pure d else fail "初始化语句与变量类型不符"
+  else pure d
+
+checkReturn :: Type -> [Stmt] -> CbCheck ()
+checkReturn CbVoid []                  = pure ()
+checkReturn t      []                  = fail "没有找到必要的返回值类型"
+checkReturn t      [Return _ Nothing ] = pure ()
+checkReturn t      [Return _ (Just e)] = computeType e
+  >>= \vt -> if pormot vt t then pure () else fail "函数return语句的类型与返回值不符"
+checkReturn t (stmt : stmts) = checkReturn t stmts
+
+checkFunction :: Declaration -> CbCheck Declaration
+checkFunction d@(Function fc rt name params body) = case body of
+  (Block _ _ stmts) -> checkReturn rt stmts $> d
+  _                 -> fail "函数定义的结构异常"
+
 
 ----------------------- rcursive ----------------------------------
 
@@ -99,7 +133,8 @@ checkTypeAssign (CbConst _) _  = fail "对 const 类型的表达式赋值"
 checkTypeAssign lt          rt = pormot' rt lt
 
 checkCall :: Type -> [Type] -> Bool
-checkCall (CbFunction fc pats) params = all (uncurry pormot) (zip params pats)
+checkCall (CbFunction fc pats) params =
+  length pats == length params && all (uncurry pormot) (zip params pats)
 
 pormot' :: Type -> Type -> CbCheck Type
 pormot' source target =

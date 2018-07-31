@@ -8,5 +8,6 @@ import Text.PrettyPrint.GenericPretty
 
 main :: IO ()
 main = do
-  r <- runMain (cbMain "C:\\Users\\makai\\learn\\haskell\\cbc\\cb-project")
-  pp r
+  r <- runMain (cbMain "/home/makai/Project/haskell/cbc/cb-project")
+  pp $ fst r
+  print $ snd r

@@ -8,7 +8,7 @@ import           Helper
 import qualified Data.Map.Strict               as Map
 import           GHC.Generics                   ( Generic )
 import           Text.PrettyPrint.GenericPretty ( Out )
-import           Control.Monad.Trans.Except     ( Except(..) )
+import           Control.Monad.Trans.Except     ( ExceptT(..) )
 import           Control.Monad.Trans.State.Strict
                                                 ( get
                                                 , put
@@ -30,4 +30,4 @@ data CheckState = CheckState
 stateInit :: IState -> CheckState
 stateInit ist = CheckState {rcursive = Map.empty, exprTypes = Map.empty, ist = ist }
 
-type CbCheck = StateT CheckState (Except Err)
+type CbCheck = StateT CheckState (ExceptT Err Cb)

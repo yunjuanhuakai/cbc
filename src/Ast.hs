@@ -149,10 +149,8 @@ isLValue _             = False
 
 ----------------------------- unit -----------------------------
 
-data Unit =
-  Unit
-  { imports :: [Import],
-    declarations :: [Declaration]
+newtype Unit = Unit
+  { declarations :: [Declaration]
   } deriving (Eq, Show, Generic)
 
 data Import = Import

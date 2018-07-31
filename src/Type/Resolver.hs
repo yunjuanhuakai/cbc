@@ -9,13 +9,10 @@ import           Helper
 import           IState
 import           Type.Check
 import           Type.State
-import           Data.Maybe
-import           Data.Functor
+import           Control.Monad
 import           Control.Monad.Trans.State.Strict
                                                 ( get
                                                 , put
-                                                , evalState
-                                                , StateT(..)
                                                 )
 
 checkRcursive' :: Declaration -> CbCheck Declaration
@@ -24,37 +21,22 @@ checkRcursive' decl = do
   if res then pure decl else fail "存在循环定义的结构体"
 
 unit :: Unit -> CbCheck Unit
-unit (Unit imps decls) = Unit imps <$> mapM decl decls
+unit (Unit decls) = Unit <$> mapM decl decls
 
 param :: Param -> CbCheck Param
 param (Param t name init) =
   Param <$> type' t <*> pure name <*> mapM exprAndCheck init
 
-checkVar :: Declaration -> CbCheck Declaration
-checkVar d@(Variable fc t name init) = if isJust init
-  then do
-    vt <- fmap (\s -> exprTypes s Map.! fromJust init) get
-    if pormot vt t then pure d else fail "初始化语句与变量类型不符"
-  else pure d
-
-checkReturn :: Type -> [Stmt] -> CbCheck ()
-checkReturn CbVoid []                  = pure ()
-checkReturn t      []                  = fail "没有找到必要的返回值类型"
-checkReturn t      [Return _ Nothing ] = pure ()
-checkReturn t      [Return _ (Just e)] = computeType e
-  >>= \vt -> if pormot vt t then pure () else fail "函数return语句的类型与返回值不符"
-checkReturn t (stmt : stmts) = checkReturn t stmts
-
-checkFunction :: Declaration -> CbCheck Declaration
-checkFunction d@(Function fc rt name params body) = case body of
-  (Block _ _ stmts) -> checkReturn rt stmts $> d
-  _                 -> fail "函数定义的结构异常"
-
 decl :: Declaration -> CbCheck Declaration
 decl (Variable fc t name init) =
   Variable fc <$> type' t <*> pure name <*> mapM exprAndCheck init >>= checkVar
 decl (Function fc rt name params body) =
-  Function fc <$> type' rt <*> pure name <*> mapM param params <*> stmt body
+  Function fc
+    <$> type' rt
+    <*> pure name
+    <*> mapM param params
+    <*> stmt body
+    >>= checkFunction
 decl (UndefineFunction fc rt name params) =
   UndefineFunction fc <$> type' rt <*> pure name <*> mapM param params
 decl (Struct fc name params) =
@@ -63,30 +45,26 @@ decl (Union fc name params) =
   Union fc name <$> mapM param params >>= checkRcursive'
 decl (Typedef fc t name) = Typedef fc <$> type' t <*> pure name
 
-checkCond :: Expr -> CbCheck Expr
-checkCond e = do
-  t <- fmap (\s -> exprTypes s Map.! e) get
-  if isBool t then pure e else fail "作为条件的表达式不是bool类型的"
-
-checkCase :: Expr -> CbCheck Expr
-checkCase e = do
-  t <- fmap (\s -> exprTypes s Map.! e) get
-  if pormot t CbULong then pure e else fail "作为 case 语句的匹配值不符合为整数的限制"
-
 stmt :: Stmt -> CbCheck Stmt
 stmt (If fc expr then_ else_) =
-  If fc <$> checkCond expr <*> stmt then_ <*> mapM stmt else_
+  If fc <$> (exprAndCheck expr >>= checkCond) <*> stmt then_ <*> mapM stmt else_
 stmt (Switch fc expr stmts) =
   Switch fc <$> exprAndCheck expr <*> mapM stmt stmts
-stmt (Case fc expr body) = Case fc <$> checkCase expr <*> stmt body
+stmt (Case fc expr body) = Case fc <$> (exprAndCheck >=> checkCase) expr <*> stmt body
 stmt (For fc init cond next body) =
-  For fc <$> stmt init <*> mapM checkCond cond <*> stmt next <*> stmt body
-stmt (While   fc cond  body ) = While fc <$> checkCond cond <*> stmt body
-stmt (DoWhile fc body  cond ) = DoWhile fc <$> stmt body <*> checkCond cond
-stmt (Block   fc decls stmts) = Block fc <$> mapM decl decls <*> mapM stmt stmts
-stmt (Return     fc expr    ) = Return fc <$> mapM exprAndCheck expr
-stmt (Expression fc expr    ) = Expression fc <$> exprAndCheck expr
-stmt s                        = pure s
+  For fc
+    <$> stmt init
+    <*> mapM (exprAndCheck >=> checkCond) cond
+    <*> stmt next
+    <*> stmt body
+stmt (While fc cond body) =
+  While fc <$> (exprAndCheck cond >>= checkCond) <*> stmt body
+stmt (DoWhile fc body cond) =
+  DoWhile fc <$> stmt body <*> (exprAndCheck cond >>= checkCond)
+stmt (Block fc decls stmts) = Block fc <$> mapM decl decls <*> mapM stmt stmts
+stmt (Return     fc expr  ) = Return fc <$> mapM exprAndCheck expr
+stmt (Expression fc expr  ) = Expression fc <$> exprAndCheck expr
+stmt s                      = pure s
 
 exprAndCheck :: Expr -> CbCheck Expr
 exprAndCheck expr = do

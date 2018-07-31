@@ -46,7 +46,7 @@ import           Helper
 type Parsing m = (P.MonadParsec Void String m, MonadWriter FC m)
 
 unit :: CbParser Unit
-unit = Unit <$> P.many import_ <*> P.many declaration
+unit = Unit <$> P.many declaration
 
 import_ :: CbParser Import
 import_ = rword "import" *> do
@@ -67,17 +67,11 @@ imports_ = do
 
 ---------------------------- scope --------------------------------------
 
-
 pushScope :: CbParser ()
 pushScope = do
   ist <- get
-  put $ ist
-    { scope = Scope
-                { parent   = Just $ scope ist
-                , decls    = Map.fromList []
-                , children = []
-                }
-    }
+  put $ ist { scope = Scope {parent = Just $ scope ist, decls = Map.fromList []}
+            }
 
 insertDeclToScope :: String -> Declaration -> CbParser ()
 insertDeclToScope name decl = do
@@ -109,37 +103,22 @@ pushDeclToScope decl = do
 
 ---------------------------- expr -----------------------------------------
 
-
-
 primary :: CbParser Expr
-primary =
-  CharLiteral
-    <$> getFC
-    <*> charLiteral
-    <|> StringLiteral
-    <$> getFC
-    <*> stringLiteral
-    <|> BoolLiteral
-    <$> getFC
-    <*> bool
-    <|> IntLiteral
-    <$> getFC
-    <*> natural
-    <|> FloatLiteral
-    <$> getFC
-    <*> float
-    <|> varable
-    <|> lchar '('
-    *>  expr
-    <*  lchar ')'
+primary = CharLiteral <$> getFC <*> charLiteral
+      <|> StringLiteral <$> getFC <*> stringLiteral
+      <|> BoolLiteral <$> getFC <*> bool
+      <|> P.try (FloatLiteral <$> getFC <*> float)
+      <|> IntLiteral <$> getFC <*> natural
+      <|> varable
+      <|> lchar '(' *>  expr <*  lchar ')'
  where
   varable = do
     ist  <- get
     name <- identifier
     fc   <- getFC
     case searchByScope name ist of
-      Just Variable { declType } -> pure $ Varable fc name declType
-      _                          -> fail "match var fail"
+      Just decl -> pure $ Varable fc name $ declToType decl
+      _         -> fail "match var fail"
 
 orOp :: Parsing m => [String] -> m String
 orOp ls = foldr1 (<|>) (map lstring ls)
@@ -327,7 +306,7 @@ block_ :: Bool -> CbParser Stmt
 block_ b = do
   ist <- get
   when b pushScope
-  res <- P.many (P.try (Left <$> defvar) <|> (Right <$> stmt)) >>= block_stmt'
+  res <- P.many (P.try (Left <$> defvar') <|> (Right <$> stmt)) >>= block_stmt'
   when b (put ist)
   return res
  where
@@ -357,6 +336,11 @@ declarationByImport =
     do
       pushDeclToScope decl
       pure decl
+
+defvar' :: CbParser Declaration
+defvar' = defvar >>= \decl -> do
+  pushDeclToScope decl
+  pure decl
 
 defvar :: CbParser Declaration
 defvar =

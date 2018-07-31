@@ -11,7 +11,6 @@ import           Text.PrettyPrint.GenericPretty ( Out )
 data Scope = Scope
   { parent    :: Maybe Scope
   , decls     :: Map.Map String A.Declaration
-  , children  :: [Scope]
   }
   deriving (Eq, Show, Generic)
 
@@ -41,7 +40,7 @@ cbInit = IState typeInit
                 continueStackInit
  where
   typeInit          = Map.empty
-  scopeInit         = Scope Nothing Map.empty []
+  scopeInit         = Scope Nothing Map.empty
   driectInit        = ""
   levelInit         = 0
   labelCountInit    = 0
@@ -50,12 +49,12 @@ cbInit = IState typeInit
   continueStackInit = []
 
 topScope :: Scope
-topScope = Scope {parent = Nothing, decls = Map.fromList [], children = []}
+topScope = Scope {parent = Nothing, decls = Map.fromList []}
 
 searchByScope :: String -> IState -> Maybe A.Declaration
 searchByScope name ist = impl $ scope ist
  where
-  impl (Scope Nothing  vs _) = Map.lookup name vs
-  impl (Scope (Just p) vs _) = case Map.lookup name vs of
+  impl (Scope Nothing  vs) = Map.lookup name vs
+  impl (Scope (Just p) vs) = case Map.lookup name vs of
     Just t  -> Just t
     Nothing -> impl p
