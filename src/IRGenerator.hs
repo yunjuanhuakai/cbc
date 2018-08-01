@@ -5,6 +5,7 @@ import           IR
 import           IState
 import           Helper
 
+import           Data.Maybe
 import           Control.Monad
 import           Control.Monad.Trans.Except
 import           Control.Monad.State.Strict     ( StateT(..)
@@ -120,7 +121,7 @@ transformStmt (A.While _ cond body) = do
   pushBrack endLabel
 
   transformStmt body
-  
+
   popBrack
   popContinue
 
@@ -145,8 +146,36 @@ transformStmt (A.DoWhile _ body cond) = do
   cjump <$> transformExpr cond <*> pure bodyLabel <*> pure endLabel
   label endLabel
 
-transformStmt (A.For _ init cond next body) = undefined
+transformStmt (A.For _ init cond next body) = do
+  begLabel  <- labelGen
+  bodyLabel <- labelGen
+  endLabel  <- labelGen
 
+  mapM_ transformExpr' init
+  label begLabel
+  if isJust cond
+    then
+      cjump
+      <$> transformExpr' (fromJust cond)
+      <*> pure bodyLabel
+      <*> pure endLabel
+    else pure $ jump bodyLabel
+  label bodyLabel
+  mapM_ transformExpr' next
+
+  pushContinue begLabel
+  pushBrack endLabel
+
+  transformStmt body
+
+  popBrack
+  popContinue
+
+  jump begLabel
+  label endLabel
+
+transformStmt (A.Goto  _ s ) = jump $ Label s
+transformStmt (A.Label _ s ) = label $ Label s
 transformStmt (A.Break    _) = topBrack >>= jump
 transformStmt (A.Continue _) = topContinue >>= jump
 

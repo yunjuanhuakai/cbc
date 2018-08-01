@@ -299,7 +299,7 @@ for_ =
     <* rword "for"
     <* lchar '('
     <*> P.optional expr' <* lchar ';'
-    <*> P.optional expr' <* lchar ';'
+    <*> P.optional expr  <* lchar ';'
     <*> P.optional expr'
     <* lchar ')'
     <* lchar '{'
