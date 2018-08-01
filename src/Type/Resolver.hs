@@ -24,8 +24,7 @@ unit :: Unit -> CbCheck Unit
 unit (Unit decls) = Unit <$> mapM decl decls
 
 param :: Param -> CbCheck Param
-param (Param t name init) =
-  Param <$> type' t <*> pure name <*> mapM exprAndCheck init
+param (Param t name) = Param <$> type' t <*> pure name
 
 decl :: Declaration -> CbCheck Declaration
 decl (Variable fc t name init) =
@@ -48,14 +47,15 @@ decl (Typedef fc t name) = Typedef fc <$> type' t <*> pure name
 stmt :: Stmt -> CbCheck Stmt
 stmt (If fc expr then_ else_) =
   If fc <$> (exprAndCheck expr >>= checkCond) <*> stmt then_ <*> mapM stmt else_
-stmt (Switch fc expr stmts) =
-  Switch fc <$> exprAndCheck expr <*> mapM stmt stmts
-stmt (Case fc expr body) = Case fc <$> (exprAndCheck >=> checkCase) expr <*> stmt body
+stmt (Switch fc expr cases default_) =
+  Switch fc <$> exprAndCheck expr <*> mapM stmt cases <*> mapM stmt default_
+stmt (Case fc expr body) =
+  Case fc <$> (exprAndCheck >=> checkCase) expr <*> stmt body
 stmt (For fc init cond next body) =
   For fc
-    <$> stmt init
+    <$> mapM exprAndCheck init
     <*> mapM (exprAndCheck >=> checkCond) cond
-    <*> stmt next
+    <*> mapM exprAndCheck next
     <*> stmt body
 stmt (While fc cond body) =
   While fc <$> (exprAndCheck cond >>= checkCond) <*> stmt body
@@ -94,7 +94,7 @@ expr' (Dereference fc expr   ) = Dereference fc <$> exprAndCheck expr
 expr' (Member    fc name expr) = Member fc name <$> exprAndCheck expr
 expr' (PtrMember fc name expr) = PtrMember fc name <$> exprAndCheck expr
 expr' (Arrayref fc ve ie) = Arrayref fc <$> exprAndCheck ve <*> exprAndCheck ie
-expr' (Varable   fc name t   ) = Varable fc name <$> type' t
+expr' (Decl      fc name t   ) = Decl fc name <$> type' t
 expr' e                        = pure e
 
 type' :: Type -> CbCheck Type

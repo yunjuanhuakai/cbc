@@ -109,15 +109,15 @@ primary = CharLiteral <$> getFC <*> charLiteral
       <|> BoolLiteral <$> getFC <*> bool
       <|> P.try (FloatLiteral <$> getFC <*> float)
       <|> IntLiteral <$> getFC <*> natural
-      <|> varable
-      <|> lchar '(' *>  expr <*  lchar ')'
+      <|> decl
+      <|> lchar '(' *>  expr' <*  lchar ')'
  where
-  varable = do
+  decl = do
     ist  <- get
     name <- identifier
     fc   <- getFC
     case searchByScope name ist of
-      Just decl -> pure $ Varable fc name $ declToType decl
+      Just decl -> pure $ Decl fc name $ declToType decl
       _         -> fail "match var fail"
 
 orOp :: Parsing m => [String] -> m String
@@ -174,6 +174,10 @@ term = P.try cast <|> P.try unary <|> primary
           )
       <|> postfix
 
+expr' :: CbParser Expr
+expr' = P.sepBy1 expr (lchar ',') >>= \es ->
+  if length es == 1 then pure $ head es else Seq <$> getFC <*> pure es
+
 expr :: CbParser Expr
 expr = expr_assign <|> expr_opassign <|> expr10
  where
@@ -186,28 +190,17 @@ expr = expr_assign <|> expr_opassign <|> expr10
       f <- op
       f l <$> scan
   op ls = Binary <$> getFC <*> orOp ls
-  opassign_op =
-    rword "+="
-      $>  "+"
-      <|> rword "-="
-      $>  "-"
-      <|> rword "*="
-      $>  "*"
-      <|> rword "/="
-      $>  "/"
-      <|> rword "%="
-      $>  "%"
-      <|> rword "&="
-      $>  "&"
-      <|> rword "|="
-      $>  "|"
-      <|> rword "^="
-      $>  "^"
-      <|> rword "<<="
-      $>  "<<"
-      <|> rword ">>="
-      *>  pure ">>"
-      <?> "opassign_op"
+  opassign_op = rword "+=" $>  "+"
+            <|> rword "-=" $>  "-"
+            <|> rword "*=" $>  "*"
+            <|> rword "/=" $>  "/" 
+            <|> rword "%=" $>  "%"
+            <|> rword "&=" $>  "&"
+            <|> rword "|=" $>  "|"
+            <|> rword "^=" $>  "^"
+            <|> rword "<<=" $>  "<<"
+            <|> rword ">>=" *>  pure ">>"
+            <?> "opassign_op"
   expr1 = binary term (op ["*", "/", "%"])
   expr2 = binary expr1 (op ["+", "-"])
   expr3 = binary expr2 (op [">>", "<<"])
@@ -215,8 +208,8 @@ expr = expr_assign <|> expr_opassign <|> expr10
   expr5 = binary expr4 (op ["^"])
   expr6 = binary expr5 (op ["|"])
   expr7 = binary expr6 (op [">=", "<=", ">", "<", "==", "!="])
-  expr8 = binary expr7 (op ["&&"])
-  expr9 = binary expr8 (op ["||"])
+  expr8 = binary expr7 (op ["and"])
+  expr9 = binary expr8 (op ["or"])
   expr10 =
     P.try
         (   Cond
@@ -259,6 +252,7 @@ stmt =
     <|> if_
     <|> while_
     <|> switch_
+    <|> for_
     <|> lchar '{'
     *>  block_ True
     <*  lchar '}'
@@ -278,18 +272,14 @@ switch_ =
   Switch
     <$> getFC
     <*> panes "switch"
-    <*> (lchar '{' *> P.many case_ <* lchar '}')
-
-case_ :: CbParser Stmt
-case_ =
-  Case
-    <$> getFC
-    <*> (rword "case" *> expr <* lchar ':')
-    <*> case_block
-    <|> Default
-    <$> getFC
-    <*> (rword "default" *> lchar ':' *> case_block)
-  where case_block = lchar '{' *> block_ True <* lchar '}' <|> block_ False
+    <*  lchar '{'
+    <*> P.many case_
+    <*> P.optional default_
+    <*  lchar '}'
+ where
+  caseblock = lchar '{' *> block_ True <* lchar '}' <|> block_ False
+  case_ = Case <$> getFC <*> (rword "case" *> expr <* lchar ':') <*> caseblock
+  default_ = Default <$> getFC <*> (rword "default" *> lchar ':' *> caseblock)
 
 while_ :: CbParser Stmt
 while_ =
@@ -302,12 +292,27 @@ while_ =
     <*> (rword "do" *> stmt)
     <*> panes "while"
 
+for_ :: CbParser Stmt
+for_ =
+  For
+    <$> getFC
+    <* rword "for"
+    <* lchar '('
+    <*> P.optional expr' <* lchar ';'
+    <*> P.optional expr' <* lchar ';'
+    <*> P.optional expr'
+    <* lchar ')'
+    <* lchar '{'
+    <*> block_ True 
+    <* lchar '}'
+
 block_ :: Bool -> CbParser Stmt
 block_ b = do
   ist <- get
   when b pushScope
   res <- P.many (P.try (Left <$> defvar') <|> (Right <$> stmt)) >>= block_stmt'
-  when b (put ist)
+  nst <- get
+  when b (put $ nst {scope = scope ist})
   return res
  where
   block_stmt' = block ([], [])
@@ -408,9 +413,9 @@ typedef =
     >>= addType
 
 params :: Char -> CbParser [Param]
-params c = P.sepBy param (lchar c)
+params c = P.sepEndBy param (lchar c)
  where
-  param = Param <$> type_ <*> identifier <*> P.optional (lchar '=' *> expr)
+  param = Param <$> type_ <*> identifier
 
 ------------------------------- type -----------------------------------
 
@@ -577,6 +582,8 @@ rws =
   , "typedef"
   , "import"
   , "sizeof"
+  , "and"
+  , "or"
   ]
 
 rword :: Parsing m => String -> m ()

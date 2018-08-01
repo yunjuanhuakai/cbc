@@ -47,8 +47,8 @@ runparser p i inputname s =
 
 parserUnit' :: FilePath -> String -> Cb Unit
 parserUnit' fname input = do
-  ist <- get
   u   <- parserUnit fname input
+  ist <- get
   res <- runExceptT $ runStateT (TC.unit u) (TS.stateInit ist)
   case res of
     Left  e -> fail $ show e

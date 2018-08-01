@@ -107,11 +107,11 @@ checkTypeBin lt op rt = if
   | op `elem` ["<", "<=", ">", ">="] -> const CbBool <$> checkTypeBinByArithmetic lt rt
   | op `elem` ["%", "&", "|", "^", ">>", "<<"] ->  if
     | isInteger lt && isInteger rt -> checkTypeBinByArithmetic lt rt
-    | otherwise -> fail "无法对非整形数字运用这个运算符"
+    | otherwise -> fail $ "无法对非整形数字运用 " ++ op ++ " 运算符"
   | op `elem` ["==", "!="] -> case typeTable !! typeIndex lt !! typeIndex rt of
-    Just t  -> pure t
+    Just t  -> pure CbBool
     Nothing -> fail "无法提升的类型"
-  | op `elem` ["&&", "||"] -> if
+  | op `elem` ["and", "or"] -> if
     | isBool lt && isBool rt -> pure CbBool
     | otherwise -> fail "逻辑运算符两侧须为bool类型"
   | otherwise -> fail "未知的操作符"
@@ -201,12 +201,12 @@ computeType (Dereference fc expr) = do
 computeType (Member fc name expr) = do
   t <- computeType expr
   case findMem t name of
-    Just (Param t _ _) -> pure t
+    Just (Param t _ ) -> pure t
     Nothing            -> fail $ "无法获取 " ++ name ++ " 成员的类型"
 computeType (PtrMember fc name expr) = do
   t <- computeType expr
   case findPtrMem t name of
-    Just (Param t _ _) -> pure t
+    Just (Param t _ ) -> pure t
     Nothing            -> fail $ "无法获取 " ++ name ++ " 成员的类型"
 computeType (Arrayref fc ve ie) = do
   vt <- computeType ve
@@ -214,9 +214,10 @@ computeType (Arrayref fc ve ie) = do
   if isPtr vt && isInteger it
     then maybeToEither $ mem vt
     else fail "对非指针类型的值解引用"
-computeType (Varable fc name type_) = pure type_
-computeType IntLiteral{}            = pure $ CbConst CbInt
-computeType FloatLiteral{}          = pure $ CbConst CbFloat
-computeType StringLiteral{}         = pure $ CbConst $ CbPtr CbChar
-computeType CharLiteral{}           = pure $ CbConst CbChar
-computeType BoolLiteral{}           = pure $ CbConst CbBool
+computeType (Decl fc name type_) = pure type_
+computeType (Seq fc exprs)       = last <$> mapM computeType exprs
+computeType IntLiteral{}         = pure $ CbConst CbInt
+computeType FloatLiteral{}       = pure $ CbConst CbFloat
+computeType StringLiteral{}      = pure $ CbConst $ CbPtr CbChar
+computeType CharLiteral{}        = pure $ CbConst CbChar
+computeType BoolLiteral{}        = pure $ CbConst CbBool

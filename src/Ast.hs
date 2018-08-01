@@ -97,10 +97,10 @@ declToType (Typedef _ t    _     ) = t
 
 data Stmt
   = If FC Expr Stmt (Maybe Stmt)
-  | Switch FC Expr [Stmt]
+  | Switch FC Expr [Stmt] (Maybe Stmt)
   | Case FC Expr Stmt
   | Default FC Stmt
-  | For FC Stmt (Maybe Expr) Stmt Stmt
+  | For FC (Maybe Expr) (Maybe Expr) (Maybe Expr) Stmt
   | While FC Expr Stmt
   | DoWhile FC Stmt Expr
   | Block FC [Declaration] [Stmt]
@@ -131,7 +131,8 @@ data Expr
   | Member FC String Expr
   | PtrMember FC String Expr
   | Arrayref FC Expr Expr
-  | Varable FC String Type
+  | Decl FC String Type
+  | Seq FC [Expr]
   | IntLiteral FC Int
   | FloatLiteral FC Double
   | StringLiteral FC String
@@ -140,7 +141,7 @@ data Expr
   deriving (Eq, Show, Ord, Generic)
 
 isLValue :: Expr -> Bool
-isLValue Varable{}     = True
+isLValue Decl{}     = True
 isLValue Member{}      = True
 isLValue PtrMember{}   = True
 isLValue Arrayref{}    = True
@@ -165,7 +166,6 @@ data Param
   = Param
     { paramType :: Type
     , paramName :: String
-    , paramInit :: Maybe Expr
     }
   deriving (Show, Eq, Ord, Generic)
 

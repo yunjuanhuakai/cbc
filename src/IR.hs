@@ -42,8 +42,8 @@ data Op = ADD
         | BIT_LSHLFT
         | BIT_RSHLFT
         | ARITH_RSHIFT
-        | EQ
-        | NEQ
+        | EQ_
+        | NEQ_
         | S_GT
         | S_GTEQ
         | S_LT
