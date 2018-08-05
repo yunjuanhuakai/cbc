@@ -117,9 +117,16 @@ primary = CharLiteral <$> getFC <*> charLiteral
     name <- identifier
     fc   <- getFC
     case searchByScope name ist of
-      Just decl -> pure $ Decl fc name $ declToHandler decl
+      Just decl -> Decl fc name <$> idGen decl
       _         -> fail "match var fail"
-  declToHandler decl = DeclHandler (declFC decl) (declToType decl)
+  declToHandler decl = DeclHandler $ declToType decl
+  idGen decl = do
+    ist <- get
+    let id = declCount ist + 1
+    put $ ist 
+      { declCount = id
+      , handlers = Map.insert id (declToHandler decl) (handlers ist)}
+    pure id
 
 orOp :: Parsing m => [String] -> m String
 orOp ls = foldr1 (<|>) (map lstring ls)

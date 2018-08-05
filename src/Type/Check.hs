@@ -204,10 +204,10 @@ computeType (Arrayref fc ve ie) = do
   if isPtr vt && isInteger it
     then maybeToEither $ mem vt
     else fail "对非指针类型的值解引用"
-computeType (Decl fc name handler) = pure $ handlerType handler
-computeType (Seq fc exprs        ) = last <$> mapM computeType exprs
-computeType IntLiteral{}           = pure $ CbConst CbInt
-computeType FloatLiteral{}         = pure $ CbConst CbFloat
-computeType StringLiteral{}        = pure $ CbConst $ CbPtr CbChar
-computeType CharLiteral{}          = pure $ CbConst CbChar
-computeType BoolLiteral{}          = pure $ CbConst CbBool
+computeType (Decl fc name id) = handlerType <$> findHandlerById id
+computeType (Seq fc exprs   ) = last <$> mapM computeType exprs
+computeType IntLiteral{}      = pure $ CbConst CbInt
+computeType FloatLiteral{}    = pure $ CbConst CbFloat
+computeType StringLiteral{}   = pure $ CbConst $ CbPtr CbChar
+computeType CharLiteral{}     = pure $ CbConst CbChar
+computeType BoolLiteral{}     = pure $ CbConst CbBool

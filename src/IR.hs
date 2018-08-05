@@ -49,7 +49,7 @@ data Expr = Uni Op Type Expr
           | Call Expr [Expr]
           | Addr Expr
           | Mem Expr
-          | Var String A.DeclHandler
+          | Var String Int
           | Str String
           | I Int
           | F Float
@@ -79,7 +79,9 @@ data Op = ADD
 
 transformOp :: String -> Op
 transformOp "+"  = ADD
+transformOp "++" = ADD
 transformOp "-"  = SUB
+transformOp "--" = SUB
 transformOp "*"  = MUL
 transformOp "/"  = DIV
 transformOp "%"  = MOD
@@ -96,4 +98,3 @@ transformOp ">=" = GTEQ
 transformOp "<"  = LT_
 transformOp "<=" = LTEQ
 transformOp "!"  = NOT
-

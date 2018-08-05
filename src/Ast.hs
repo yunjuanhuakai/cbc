@@ -113,10 +113,6 @@ data Stmt
   deriving (Eq, Show, Generic)
 
 ----------------------------- expr ------------------------------
-data DeclHandler = DeclHandler
-  { declPos :: FC
-  , handlerType :: Type
-  } deriving (Eq, Show, Ord, Generic)
 
 data Expr
   = Funcall FC [Expr] Expr
@@ -135,7 +131,7 @@ data Expr
   | Member FC String Expr
   | PtrMember FC String Expr
   | Arrayref FC Expr Expr
-  | Decl FC String DeclHandler
+  | Decl FC String Int
   | Seq FC [Expr]
   | IntLiteral FC Int
   | FloatLiteral FC Double
@@ -143,6 +139,9 @@ data Expr
   | CharLiteral FC Char
   | BoolLiteral FC Bool
   deriving (Eq, Show, Ord, Generic)
+
+declId :: Expr -> Int
+declId (Decl _ _ id) = id
 
 isLValue :: Expr -> Bool
 isLValue Decl{}     = True
@@ -291,10 +290,20 @@ unknown _             = False
 sizeof :: Type -> Int
 sizeof = undefined
 
+offsetByParams :: [Param] -> String -> Maybe Int
+offsetByParams []       _    = Nothing
+offsetByParams (p : ps) name = if paramName p == name
+  then Just 0
+  else (+) (sizeof $ paramType p) <$> offsetByParams ps name
+
+offset :: Type -> String -> Maybe Int
+offset (CbStruct _ params) name = offsetByParams params name
+offset CbUnion{}           _    = Just 0
+offset _                   _    = Nothing
+
 instance Out FC
 instance Out Param
 instance Out Type
-instance Out DeclHandler
 instance Out Expr
 instance Out Stmt
 instance Out Declaration

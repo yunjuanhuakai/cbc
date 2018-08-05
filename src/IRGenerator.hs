@@ -35,6 +35,9 @@ return_ e = addStmt $ Return e
 expression :: Expr -> Cb ()
 expression e = addStmt $ Expression e
 
+assign :: Expr -> Expr -> Cb ()
+assign le re = addStmt $ Assign le re
+
 labelGen :: Cb Stmt
 labelGen = do
   i <- get
@@ -207,6 +210,9 @@ queryTypeTwo' le re = do
   t <- queryTypeTwo le re
   pure $ transformType t
 
+isStatement :: Cb Bool
+isStatement = fmap (\ist -> level ist == 1) get
+
 transformBin :: A.Expr -> String -> A.Expr -> Cb Expr
 transformBin lae op rae = do
   lt <- queryType lae
@@ -223,7 +229,46 @@ transformBin lae op rae = do
      | otherwise -> 
        Bin (transformOp op) <$> queryTypeTwo' lae rae <*> pure le <*> pure re
 
+transformOpAssign :: A.Expr -> Op -> A.Expr -> Cb Expr
+transformOpAssign = undefined
+
 transformExpr :: A.Expr -> Cb Expr
 transformExpr (A.Unary _ "+" expr) = transformExpr' expr
-transformExpr (A.Unary _ "-" expr) = Uni UMINUS <$> queryType' expr <*> transformExpr' expr
+transformExpr (A.Unary _ "-" expr) =
+  Uni UMINUS <$> queryType' expr <*> transformExpr' expr
 transformExpr (A.Binary _ op le re) = transformBin le op re
+transformExpr e@(A.Member _ name expr) = do
+  ptr <- Addr <$> transformExpr' expr
+  Mem <$> (Bin ADD UI64 ptr <$> fmap I (offset' e))
+transformExpr e@(A.PtrMember _ name expr) =
+  Mem <$> (Bin ADD UI64 <$> transformExpr' expr <*> fmap I (offset' e))
+transformExpr (A.Assign _ le re) = do
+  b   <- isStatement
+  lhs <- transformExpr' le
+  rhs <- transformExpr' re
+  if b
+    then do
+      assign lhs rhs
+      pure lhs
+    else do
+      -- lhs 在赋值表达式为子表达式的情况下，使用两次可能会导致副作用从而影响语义
+      -- 因此引入临时变量，将最终结果记录下来
+      -- cont(lhs = rhs) -> tmp = rhs; lhs = tmp; cont(tmp)
+      tmp <- tmpVar re >>= transformExpr'
+      assign tmp rhs
+      assign lhs tmp
+      pure tmp
+transformExpr (A.Suffix _ op expr) = do
+  b <- isStatement
+  e <- transformExpr' expr
+  if b
+    then transformOpAssign expr (transformOp op) (A.IntLiteral A.NoFC 1)
+    else do
+      -- a 存 expr 的引用，tmp 记录 expr 的结果
+      -- cont(expr++) -> a = &expr; tmp = *a; *a = *a + 1; cont(tmp)
+      a   <- tmpVar (A.Address A.NoFC expr) >>= transformExpr'
+      tmp <- tmpVar expr >>= transformExpr'
+      assign a       (Addr e)
+      assign tmp     (Mem a)
+      assign (Mem a) (Bin ADD UI64 (Mem a) (I 1))
+      pure tmp

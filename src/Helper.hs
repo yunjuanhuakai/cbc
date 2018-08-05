@@ -3,7 +3,7 @@
 module Helper where
 
 import qualified Text.Megaparsec               as P
-import           Control.Monad.State.Strict     ( StateT(..), get )
+import           Control.Monad.State.Strict     ( StateT(..), get, put )
 import           Control.Monad.Writer.Strict    ( WriterT(..) )
 
 import qualified Data.Map.Strict               as Map
@@ -41,3 +41,26 @@ queryTypeTwo le re = do
   lt <- fmap (\s -> exprTypes s Map.! le) get
   rt <- fmap (\s -> exprTypes s Map.! re) get
   pormotTwo lt rt
+
+findHandlerById :: Int -> Cb DeclHandler
+findHandlerById id = fmap (\ist -> handlers ist Map.! id) get
+
+offset' :: Expr -> Cb Int
+offset' (Member _ name expr) = do
+  t <- queryType expr
+  case offset t name of
+    Just n -> pure n
+    Nothing -> fail "错误的成员变量偏移量计算"
+offset' _ = fail "无法计算偏移量"
+
+tmpVar :: Expr -> Cb Expr
+tmpVar e = do
+  t <- queryType e
+  ist <- get
+  let id = declCount ist + 1
+  let handler = DeclHandler t
+  put $ ist 
+    { declCount = id
+    , handlers = Map.insert id handler $ handlers ist
+    }
+  pure $ Decl NoFC ("#tmp" ++ show id) id

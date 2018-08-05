@@ -17,12 +17,19 @@ data Scope = Scope
 data Flag = Checking | Checked
   deriving (Eq, Show, Generic)
 
+data DeclHandler = DeclHandler
+  { handlerType :: A.Type
+  } 
+  deriving (Eq, Show, Ord, Generic)
+
 data IState = IState
   {
 -- ast
     types            :: Map.Map String A.Type
   , scope            :: Scope
   , projectDriectory :: FilePath
+  , declCount        :: Int
+  , handlers         :: Map.Map Int DeclHandler -- 所谓的符号表
 -- check
   , rcursive         :: Map.Map A.Type Flag
   , exprTypes        :: Map.Map A.Expr A.Type
@@ -39,6 +46,8 @@ cbInit :: IState
 cbInit = IState typeInit
                 scopeInit
                 driectInit
+                declCountInit
+                handlersInit
                 rcursiveInit
                 exprTypesInit
                 levelInit
@@ -50,6 +59,8 @@ cbInit = IState typeInit
   typeInit          = Map.empty
   scopeInit         = Scope Nothing Map.empty
   driectInit        = ""
+  handlersInit      = Map.empty
+  declCountInit     = 0
   levelInit         = 0
   rcursiveInit      = Map.empty
   exprTypesInit     = Map.empty
