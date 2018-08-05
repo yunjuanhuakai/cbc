@@ -4,7 +4,8 @@
 module Type.Check where
 
 import           Ast
-import           Type.State
+import IState
+import Helper
 import qualified Data.Map.Strict               as Map
 import           Data.Maybe
 import           Data.Functor
@@ -18,25 +19,25 @@ import           Control.Monad
 
 ---------------------- check other -------------------------------
 
-checkCond :: Expr -> CbCheck Expr
+checkCond :: Expr -> Cb Expr
 checkCond e = do
   t <- fmap (\s -> exprTypes s Map.! e) get
   if isBool t then pure e else fail "作为条件的表达式不是bool类型的"
 
-checkCase :: Expr -> CbCheck Expr
+checkCase :: Expr -> Cb Expr
 checkCase e = do
   t <- fmap (\s -> exprTypes s Map.! e) get
   if pormot t CbULong then pure e else fail "作为 case 语句的匹配值不符合为整数的限制"
 
 
-checkVar :: Declaration -> CbCheck Declaration
+checkVar :: Declaration -> Cb Declaration
 checkVar d@(Variable fc t name init) = if isJust init
   then do
     vt <- fmap (\s -> exprTypes s Map.! fromJust init) get
     if pormot vt t then pure d else fail "初始化语句与变量类型不符"
   else pure d
 
-checkReturn :: Type -> [Stmt] -> CbCheck ()
+checkReturn :: Type -> [Stmt] -> Cb ()
 checkReturn CbVoid []                  = pure ()
 checkReturn t      []                  = fail "没有找到必要的返回值类型"
 checkReturn t      [Return _ Nothing ] = pure ()
@@ -44,15 +45,14 @@ checkReturn t      [Return _ (Just e)] = computeType e
   >>= \vt -> if pormot vt t then pure () else fail "函数return语句的类型与返回值不符"
 checkReturn t (stmt : stmts) = checkReturn t stmts
 
-checkFunction :: Declaration -> CbCheck Declaration
+checkFunction :: Declaration -> Cb Declaration
 checkFunction d@(Function fc rt name params body) = case body of
   (Block _ _ stmts) -> checkReturn rt stmts $> d
   _                 -> fail "函数定义的结构异常"
 
-
 ----------------------- rcursive ----------------------------------
 
-checkRcursiveParams :: Type -> [Type] -> CbCheck Bool
+checkRcursiveParams :: Type -> [Type] -> Cb Bool
 checkRcursiveParams t ts = do
     cst <- get
     let s = rcursive cst
@@ -72,7 +72,7 @@ checkRcursiveParams t ts = do
           put $ cst { rcursive = Map.insert t Checking $ rcursive cst }
           pure res
 
-checkRcursive :: Type -> CbCheck Bool
+checkRcursive :: Type -> Cb Bool
 checkRcursive t@(CbStruct name params) =
     checkRcursiveParams t (fmap paramType params)
 checkRcursive t@(CbUnion name params) =
@@ -86,23 +86,23 @@ checkRcursive t             = do
 
 ------------------------ check expr ----------------------------------
 
-checkTypeBinByArithmetic :: Type -> Type -> CbCheck Type
+checkTypeBinByArithmetic :: Type -> Type -> Cb Type
 checkTypeBinByArithmetic lt rt = if
   | isBool lt || isBool rt -> fail "无法对bool类型运用这个运算"
   | otherwise -> case typeTable !! typeIndex lt !! typeIndex rt of
     Just t  -> pure t
     Nothing -> fail "无法提升的类型"
 
-checkTypeBinByPOrE :: Type -> Type -> CbCheck Type
-checkTypeBinByPOrE lt rt = if
-  | isPtr lt && isPtr rt -> fail "两指针之间无法运行该运算"
+checkTypeBinByPOrE :: Type -> String -> Type -> Cb Type
+checkTypeBinByPOrE lt op rt = if
+  | isPtr lt && isPtr rt -> if op == "-" then pure CbULong else fail "无法对两个指针执行这个运算"
   | isPtr lt -> if isInteger rt then pure lt else fail "对指针类型加减必须为整形"
   | isPtr rt -> if isInteger lt then pure rt else fail "对指针类型加减必须为整形"
   | otherwise -> checkTypeBinByArithmetic lt rt
 
-checkTypeBin :: Type -> String -> Type -> CbCheck Type
+checkTypeBin :: Type -> String -> Type -> Cb Type
 checkTypeBin lt op rt = if
-  | op `elem` ["+", "-"] -> checkTypeBinByPOrE lt rt
+  | op `elem` ["+", "-"] -> checkTypeBinByPOrE lt op rt
   | op `elem` ["*", "/"] -> checkTypeBinByArithmetic lt rt
   | op `elem` ["<", "<=", ">", ">="] -> const CbBool <$> checkTypeBinByArithmetic lt rt
   | op `elem` ["%", "&", "|", "^", ">>", "<<"] ->  if
@@ -116,7 +116,7 @@ checkTypeBin lt op rt = if
     | otherwise -> fail "逻辑运算符两侧须为bool类型"
   | otherwise -> fail "未知的操作符"
 
-checkTypeUnary :: String -> Type -> CbCheck Type
+checkTypeUnary :: String -> Type -> Cb Type
 checkTypeUnary op t = if
     | op `elem` ["+", "-"] -> if isSigned t
         then pure t
@@ -128,7 +128,7 @@ checkTypeUnary op t = if
         else fail "仅可对指针或数字类型调用该操作符"
     | otherwise -> fail "未知的操作符"
 
-checkTypeAssign :: Type -> Type -> CbCheck Type
+checkTypeAssign :: Type -> Type -> Cb Type
 checkTypeAssign (CbConst _) _  = fail "对 const 类型的表达式赋值"
 checkTypeAssign lt          rt = pormot' rt lt
 
@@ -136,19 +136,9 @@ checkCall :: Type -> [Type] -> Bool
 checkCall (CbFunction fc pats) params =
   length pats == length params && all (uncurry pormot) (zip params pats)
 
-pormot' :: Type -> Type -> CbCheck Type
-pormot' source target =
-  if pormot source target then pure target else fail "类型不匹配"
-
-maybeToEither :: Maybe a -> CbCheck a
-maybeToEither (Just a) = pure a
-maybeToEither Nothing  = fail "类型不匹配"
-
-pormotTwo :: Type -> Type -> CbCheck Type
-pormotTwo t1 t2 = maybeToEither $ typeTable !! typeIndex t1 !! typeIndex t2
 
 -- 计算并检测表达式类型
-computeType :: Expr -> CbCheck Type
+computeType :: Expr -> Cb Type
 computeType (Funcall fc params fun) = do
   funType    <- computeType fun
   paramTypes <- mapM computeType params
@@ -201,23 +191,23 @@ computeType (Dereference fc expr) = do
 computeType (Member fc name expr) = do
   t <- computeType expr
   case findMem t name of
-    Just (Param t _ ) -> pure t
-    Nothing            -> fail $ "无法获取 " ++ name ++ " 成员的类型"
+    Just (Param t _) -> pure t
+    Nothing          -> fail $ "无法获取 " ++ name ++ " 成员的类型"
 computeType (PtrMember fc name expr) = do
   t <- computeType expr
   case findPtrMem t name of
-    Just (Param t _ ) -> pure t
-    Nothing            -> fail $ "无法获取 " ++ name ++ " 成员的类型"
+    Just (Param t _) -> pure t
+    Nothing          -> fail $ "无法获取 " ++ name ++ " 成员的类型"
 computeType (Arrayref fc ve ie) = do
   vt <- computeType ve
   it <- computeType ie
   if isPtr vt && isInteger it
     then maybeToEither $ mem vt
     else fail "对非指针类型的值解引用"
-computeType (Decl fc name type_) = pure type_
-computeType (Seq fc exprs)       = last <$> mapM computeType exprs
-computeType IntLiteral{}         = pure $ CbConst CbInt
-computeType FloatLiteral{}       = pure $ CbConst CbFloat
-computeType StringLiteral{}      = pure $ CbConst $ CbPtr CbChar
-computeType CharLiteral{}        = pure $ CbConst CbChar
-computeType BoolLiteral{}        = pure $ CbConst CbBool
+computeType (Decl fc name handler) = pure $ handlerType handler
+computeType (Seq fc exprs        ) = last <$> mapM computeType exprs
+computeType IntLiteral{}           = pure $ CbConst CbInt
+computeType FloatLiteral{}         = pure $ CbConst CbFloat
+computeType StringLiteral{}        = pure $ CbConst $ CbPtr CbChar
+computeType CharLiteral{}          = pure $ CbConst CbChar
+computeType BoolLiteral{}          = pure $ CbConst CbBool

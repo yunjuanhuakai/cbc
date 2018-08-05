@@ -8,25 +8,24 @@ import           Ast
 import           Helper
 import           IState
 import           Type.Check
-import           Type.State
 import           Control.Monad
 import           Control.Monad.Trans.State.Strict
                                                 ( get
                                                 , put
                                                 )
 
-checkRcursive' :: Declaration -> CbCheck Declaration
+checkRcursive' :: Declaration -> Cb Declaration
 checkRcursive' decl = do
   res <- checkRcursive $ declToType decl
   if res then pure decl else fail "存在循环定义的结构体"
 
-unit :: Unit -> CbCheck Unit
+unit :: Unit -> Cb Unit
 unit (Unit decls) = Unit <$> mapM decl decls
 
-param :: Param -> CbCheck Param
+param :: Param -> Cb Param
 param (Param t name) = Param <$> type' t <*> pure name
 
-decl :: Declaration -> CbCheck Declaration
+decl :: Declaration -> Cb Declaration
 decl (Variable fc t name init) =
   Variable fc <$> type' t <*> pure name <*> mapM exprAndCheck init >>= checkVar
 decl (Function fc rt name params body) =
@@ -44,7 +43,7 @@ decl (Union fc name params) =
   Union fc name <$> mapM param params >>= checkRcursive'
 decl (Typedef fc t name) = Typedef fc <$> type' t <*> pure name
 
-stmt :: Stmt -> CbCheck Stmt
+stmt :: Stmt -> Cb Stmt
 stmt (If fc expr then_ else_) =
   If fc <$> (exprAndCheck expr >>= checkCond) <*> stmt then_ <*> mapM stmt else_
 stmt (Switch fc expr cases default_) =
@@ -66,7 +65,7 @@ stmt (Return     fc expr  ) = Return fc <$> mapM exprAndCheck expr
 stmt (Expression fc expr  ) = Expression fc <$> exprAndCheck expr
 stmt s                      = pure s
 
-exprAndCheck :: Expr -> CbCheck Expr
+exprAndCheck :: Expr -> Cb Expr
 exprAndCheck expr = do
   res <- expr' expr
   t   <- computeType res
@@ -74,7 +73,7 @@ exprAndCheck expr = do
   put $ cst { exprTypes = Map.insert res t $ exprTypes cst }
   pure res
 
-expr' :: Expr -> CbCheck Expr
+expr' :: Expr -> Cb Expr
 expr' (Funcall fc params fun) =
   Funcall fc <$> mapM exprAndCheck params <*> exprAndCheck fun
 expr' (SizeofType fc t) = SizeofType fc <$> type' t
@@ -94,13 +93,14 @@ expr' (Dereference fc expr   ) = Dereference fc <$> exprAndCheck expr
 expr' (Member    fc name expr) = Member fc name <$> exprAndCheck expr
 expr' (PtrMember fc name expr) = PtrMember fc name <$> exprAndCheck expr
 expr' (Arrayref fc ve ie) = Arrayref fc <$> exprAndCheck ve <*> exprAndCheck ie
-expr' (Decl      fc name t   ) = Decl fc name <$> type' t
-expr' e                        = pure e
+expr' (Decl fc name h) =
+  Decl fc name <$> (DeclHandler (declPos h) <$> type' (handlerType h))
+expr' e = pure e
 
-type' :: Type -> CbCheck Type
+type' :: Type -> Cb Type
 type' (CbUnknown name) = do
   cst <- get
-  case Map.lookup name (types $ ist cst) of
+  case Map.lookup name (types cst) of
     Just t  -> pure t
     Nothing -> fail $ "未知的类型名" ++ name
 type' t = pure t

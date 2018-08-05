@@ -117,8 +117,9 @@ primary = CharLiteral <$> getFC <*> charLiteral
     name <- identifier
     fc   <- getFC
     case searchByScope name ist of
-      Just decl -> pure $ Decl fc name $ declToType decl
+      Just decl -> pure $ Decl fc name $ declToHandler decl
       _         -> fail "match var fail"
+  declToHandler decl = DeclHandler (declFC decl) (declToType decl)
 
 orOp :: Parsing m => [String] -> m String
 orOp ls = foldr1 (<|>) (map lstring ls)

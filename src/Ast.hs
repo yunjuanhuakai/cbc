@@ -113,6 +113,10 @@ data Stmt
   deriving (Eq, Show, Generic)
 
 ----------------------------- expr ------------------------------
+data DeclHandler = DeclHandler
+  { declPos :: FC
+  , handlerType :: Type
+  } deriving (Eq, Show, Ord, Generic)
 
 data Expr
   = Funcall FC [Expr] Expr
@@ -131,7 +135,7 @@ data Expr
   | Member FC String Expr
   | PtrMember FC String Expr
   | Arrayref FC Expr Expr
-  | Decl FC String Type
+  | Decl FC String DeclHandler
   | Seq FC [Expr]
   | IntLiteral FC Int
   | FloatLiteral FC Double
@@ -284,9 +288,13 @@ unknown :: Type -> Bool
 unknown (CbUnknown _) = True
 unknown _             = False
 
+sizeof :: Type -> Int
+sizeof = undefined
+
 instance Out FC
 instance Out Param
 instance Out Type
+instance Out DeclHandler
 instance Out Expr
 instance Out Stmt
 instance Out Declaration

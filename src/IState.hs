@@ -14,12 +14,18 @@ data Scope = Scope
   }
   deriving (Eq, Show, Generic)
 
+data Flag = Checking | Checked
+  deriving (Eq, Show, Generic)
+
 data IState = IState
   {
 -- ast
     types            :: Map.Map String A.Type
   , scope            :: Scope
   , projectDriectory :: FilePath
+-- check
+  , rcursive         :: Map.Map A.Type Flag
+  , exprTypes        :: Map.Map A.Expr A.Type
 -- gen ir
   , level            :: Integer
   , labelCount       :: Integer
@@ -33,6 +39,8 @@ cbInit :: IState
 cbInit = IState typeInit
                 scopeInit
                 driectInit
+                rcursiveInit
+                exprTypesInit
                 levelInit
                 labelCountInit
                 stmtsInit
@@ -43,6 +51,8 @@ cbInit = IState typeInit
   scopeInit         = Scope Nothing Map.empty
   driectInit        = ""
   levelInit         = 0
+  rcursiveInit      = Map.empty
+  exprTypesInit     = Map.empty
   labelCountInit    = 0
   stmtsInit         = []
   brackStackInit    = []

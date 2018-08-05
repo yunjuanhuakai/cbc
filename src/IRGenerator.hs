@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiWayIf #-}
 module IRGenerator where
 
 import qualified Ast                           as A
@@ -27,6 +28,12 @@ jump = addStmt . Jump
 
 label :: Stmt -> Cb ()
 label = addStmt
+
+return_ :: Maybe Expr -> Cb ()
+return_ e = addStmt $ Return e
+
+expression :: Expr -> Cb ()
+expression e = addStmt $ Expression e
 
 labelGen :: Cb Stmt
 labelGen = do
@@ -68,7 +75,7 @@ transformCase cv (A.Case _ expr body) = do
   thenLabel <- labelGen
 
   tv        <- transformExpr' expr
-  cjump (Bin EQ_ cv tv) <$> pure thenLabel <*> topBrack
+  cjump (Bin EQ_ I8 cv tv) <$> pure thenLabel <*> topBrack
   label thenLabel
   transformStmt body
 
@@ -161,7 +168,6 @@ transformStmt (A.For _ init cond next body) = do
       <*> pure endLabel
     else pure $ jump bodyLabel
   label bodyLabel
-  mapM_ transformExpr' next
 
   pushContinue begLabel
   pushBrack endLabel
@@ -171,6 +177,7 @@ transformStmt (A.For _ init cond next body) = do
   popBrack
   popContinue
 
+  mapM_ transformExpr' next
   jump begLabel
   label endLabel
 
@@ -178,6 +185,9 @@ transformStmt (A.Goto  _ s ) = jump $ Label s
 transformStmt (A.Label _ s ) = label $ Label s
 transformStmt (A.Break    _) = topBrack >>= jump
 transformStmt (A.Continue _) = topContinue >>= jump
+transformStmt (A.Return _ maybeExpr) =
+  mapM transformExpr' maybeExpr >>= return_
+transformStmt (A.Expression _ expr) = transformExpr' expr >>= expression
 
 transformExpr' :: A.Expr -> Cb Expr
 transformExpr' e = do
@@ -187,5 +197,33 @@ transformExpr' e = do
   put $ i { level = level i - 1 }
   return res
 
+queryType' :: A.Expr -> Cb Type
+queryType' e = do
+  t <- queryType e
+  pure $ transformType t
+
+queryTypeTwo' :: A.Expr -> A.Expr -> Cb Type
+queryTypeTwo' le re = do
+  t <- queryTypeTwo le re
+  pure $ transformType t
+
+transformBin :: A.Expr -> String -> A.Expr -> Cb Expr
+transformBin lae op rae = do
+  lt <- queryType lae
+  rt <- queryType rae
+
+  le <- transformExpr' lae
+  re <- transformExpr' rae
+  if | A.isPtr lt && A.isPtr rt && op == "-" -> 
+       pure $ Bin DIV UI64 (Bin SUB UI64 le re) (I $ A.sizeof lt)
+     | A.isPtr lt -> 
+       pure $ Bin (transformOp op) UI64 le (Bin MUL UI64 re $ I (A.sizeof lt))
+     | A.isPtr rt -> 
+       pure $ Bin (transformOp op) UI64 (Bin MUL UI64 le $ I (A.sizeof rt)) re
+     | otherwise -> 
+       Bin (transformOp op) <$> queryTypeTwo' lae rae <*> pure le <*> pure re
+
 transformExpr :: A.Expr -> Cb Expr
-transformExpr = undefined
+transformExpr (A.Unary _ "+" expr) = transformExpr' expr
+transformExpr (A.Unary _ "-" expr) = Uni UMINUS <$> queryType' expr <*> transformExpr' expr
+transformExpr (A.Binary _ op le re) = transformBin le op re

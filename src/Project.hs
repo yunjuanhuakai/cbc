@@ -21,7 +21,6 @@ import           Control.Monad.Trans.State.Strict
 import           Ast
 import           IState
 import qualified Type.Resolver                 as TC
-import qualified Type.State                    as TS
 
 runMain :: Cb a -> IO (a, IState)
 runMain prog = do
@@ -48,12 +47,8 @@ runparser p i inputname s =
 parserUnit' :: FilePath -> String -> Cb Unit
 parserUnit' fname input = do
   u   <- parserUnit fname input
-  ist <- get
-  res <- runExceptT $ runStateT (TC.unit u) (TS.stateInit ist)
-  case res of
-    Left  e -> fail $ show e
-    Right r -> return $ fst r
-
+  TC.unit u
+  
 parseImports :: FilePath -> String -> Cb (Maybe Mark, [Declaration])
 parseImports fname input = do
   i <- get

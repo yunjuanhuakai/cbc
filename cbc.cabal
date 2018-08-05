@@ -4,7 +4,7 @@ cabal-version: >= 1.10
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d9d3c254f5021b1ce9ee771764d992c9b1e3bfec87f1b19a5270cf23e1ed9be8
+-- hash: f7d58718d433d8f972bb7ca806ab5e623a958ef1cc407f13f248f359e46b2b57
 
 name:           cbc
 version:        0.1.0.0
@@ -34,6 +34,7 @@ library
     , bytestring
     , containers
     , directory
+    , fgl
     , filepath
     , megaparsec
     , mtl
@@ -68,6 +69,7 @@ executable cbc-exe
     , cbc
     , containers
     , directory
+    , fgl
     , filepath
     , megaparsec
     , mtl
@@ -91,6 +93,7 @@ test-suite cbc-test
     , cbc
     , containers
     , directory
+    , fgl
     , filepath
     , megaparsec
     , mtl
