@@ -52,7 +52,7 @@ data Expr = Uni Op Type Expr
           | Var String Int
           | Str String
           | I Int
-          | F Float
+          | F Double
           deriving (Show, Eq, Ord, Generic)
 
 data Op = ADD

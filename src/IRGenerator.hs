@@ -6,6 +6,8 @@ import           IR
 import           IState
 import           Helper
 
+import           Data.Char
+import qualified Data.Map.Strict               as Map
 import           Data.Maybe
 import           Control.Monad
 import           Control.Monad.Trans.Except
@@ -229,14 +231,18 @@ transformBin lae op rae = do
      | otherwise -> 
        Bin (transformOp op) <$> queryTypeTwo' lae rae <*> pure le <*> pure re
 
-transformOpAssign :: A.Expr -> Op -> A.Expr -> Cb Expr
-transformOpAssign = undefined
+transformOpAssign :: A.Expr -> String -> A.Expr -> Cb Expr
+transformOpAssign lae op rae = do
+  lt <- queryType lae
+  rt <- queryType rae
+  t  <- pormotTwo lt rt
+  A.Assign A.NoFC lae <$> tmpVar t >>= transformExpr'
 
 transformExpr :: A.Expr -> Cb Expr
 transformExpr (A.Unary _ "+" expr) = transformExpr' expr
 transformExpr (A.Unary _ "-" expr) =
   Uni UMINUS <$> queryType' expr <*> transformExpr' expr
-transformExpr (A.Binary _ op le re) = transformBin le op re
+transformExpr (  A.Binary _ op le re ) = transformBin le op re
 transformExpr e@(A.Member _ name expr) = do
   ptr <- Addr <$> transformExpr' expr
   Mem <$> (Bin ADD UI64 ptr <$> fmap I (offset' e))
@@ -254,21 +260,66 @@ transformExpr (A.Assign _ le re) = do
       -- lhs 在赋值表达式为子表达式的情况下，使用两次可能会导致副作用从而影响语义
       -- 因此引入临时变量，将最终结果记录下来
       -- cont(lhs = rhs) -> tmp = rhs; lhs = tmp; cont(tmp)
-      tmp <- tmpVar re >>= transformExpr'
+      tmp <- queryType re >>= tmpVar >>= transformExpr'
       assign tmp rhs
       assign lhs tmp
       pure tmp
-transformExpr (A.Suffix _ op expr) = do
+transformExpr (A.OpAssign _ op le re) = transformOpAssign le op re
+transformExpr (A.Suffix _ op expr   ) = do
   b <- isStatement
   e <- transformExpr' expr
   if b
-    then transformOpAssign expr (transformOp op) (A.IntLiteral A.NoFC 1)
+    then transformOpAssign expr
+                           (if op == "++" then "+" else "-")
+                           (A.IntLiteral A.NoFC 1)
     else do
       -- a 存 expr 的引用，tmp 记录 expr 的结果
       -- cont(expr++) -> a = &expr; tmp = *a; *a = *a + 1; cont(tmp)
-      a   <- tmpVar (A.Address A.NoFC expr) >>= transformExpr'
-      tmp <- tmpVar expr >>= transformExpr'
+      t   <- queryType expr
+      a   <- tmpVar (A.CbPtr t) >>= transformExpr'
+      tmp <- tmpVar t >>= transformExpr'
       assign a       (Addr e)
       assign tmp     (Mem a)
       assign (Mem a) (Bin ADD UI64 (Mem a) (I 1))
       pure tmp
+transformExpr (A.Prefix _ op expr) = transformOpAssign
+  expr
+  (if op == "++" then "+" else "-")
+  (A.IntLiteral A.NoFC 1)
+transformExpr (A.Cast _ t expr) = do
+  ist <- get
+  put $ ist { exprTypes = Map.insert expr t $ exprTypes ist }
+  transformExpr' expr
+transformExpr (A.Cond _ cond then_ else_) = do
+  thenLabel <- labelGen
+  elseLabel <- labelGen
+  endLabel  <- labelGen
+
+  tmp       <- queryType then_ >>= tmpVar >>= transformExpr'
+  cjump <$> transformExpr' cond <*> pure thenLabel <*> pure elseLabel
+  label thenLabel
+  transformExpr' then_ >>= assign tmp
+  jump endLabel
+  label elseLabel
+  transformExpr' else_ >>= assign tmp
+  label endLabel
+  pure tmp
+transformExpr (A.Address     _ expr) = Addr <$> transformExpr' expr
+transformExpr (A.Dereference _ expr) = Mem <$> transformExpr' expr
+transformExpr (A.Arrayref _ e ie   ) = do
+  array <- transformExpr' e
+  index <- transformExpr' ie
+
+  t     <- A.elemType <$> queryType e
+  tmp   <- tmpVar (A.CbPtr t) >>= transformExpr'
+  assign tmp $ Bin ADD UI64 array index
+  pure $ Mem tmp
+transformExpr (A.Decl _ name id) = pure $ Var name id
+transformExpr (A.Seq _ exprs   ) = last <$> mapM transformExpr' exprs
+transformExpr (A.Funcall _ params fun) =
+  Call <$> transformExpr' fun <*> mapM transformExpr' params
+transformExpr (A.IntLiteral    _ i) = pure $ I i
+transformExpr (A.FloatLiteral  _ f) = pure $ F f
+transformExpr (A.StringLiteral _ s) = pure $ Str s
+transformExpr (A.CharLiteral   _ c) = pure $ I $ digitToInt c
+transformExpr (A.BoolLiteral   _ b) = pure $ I $ if b then 1 else 0

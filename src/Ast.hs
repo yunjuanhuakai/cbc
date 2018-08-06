@@ -189,6 +189,11 @@ data Type
   | CbUnknown String
   deriving (Eq, Show, Ord, Generic)
 
+elemType :: Type -> Type
+elemType (CbConst e) = elemType e
+elemType (CbArray t _) = t
+elemTYpe (CbPtr t) = t
+
 typeIndex :: Type -> Int
 typeIndex CbBool      = 0
 

@@ -53,9 +53,8 @@ offset' (Member _ name expr) = do
     Nothing -> fail "错误的成员变量偏移量计算"
 offset' _ = fail "无法计算偏移量"
 
-tmpVar :: Expr -> Cb Expr
-tmpVar e = do
-  t <- queryType e
+tmpVar :: Type -> Cb Expr
+tmpVar t = do
   ist <- get
   let id = declCount ist + 1
   let handler = DeclHandler t
