@@ -53,45 +53,51 @@ data Declaration
     , declType :: Type
     , declName :: String
     , declInit :: Maybe Expr
+    , declId :: Int
     }
   | Function
     { declFC :: FC
     , returnType :: Type
     , declName :: String
-    , declParams :: [Param]
+    , declParams :: [Declaration]
     , functionBody :: Stmt
+    , declId :: Int
     }
   | UndefineFunction
     { declFC :: FC
     , returnType :: Type
     , declName :: String
-    , declParams :: [Param]
+    , declParams :: [Declaration]
+    , declId :: Int
     }
   | Struct
     { declFC :: FC
     , declName :: String
-    , declParams :: [Param]
+    , declSlots :: [Slot]
+    , declId :: Int
     }
   | Union
     { declFC :: FC
     , declName :: String
-    , declParams :: [Param]
+    , declSlots :: [Slot]
+    , declId :: Int
     }
   | Typedef
     { declFC :: FC
     , declType :: Type
     , newName :: String
+    , declId :: Int
     }
   deriving (Eq, Show, Generic)
 
 declToType :: Declaration -> Type
-declToType (Variable _ t _ _       ) = t
-declToType (Function _ t _ params _) = CbFunction t $ map paramType params
-declToType (UndefineFunction _ t _ params) =
-  CbFunction t $ map paramType params
-declToType (Struct  _ name params) = CbStruct name params
-declToType (Union   _ name params) = CbUnion name params
-declToType (Typedef _ t    _     ) = t
+declToType (Variable _ t _ _ _       ) = t
+declToType (Function _ t _ params _ _) = CbFunction t $ map declToType params
+declToType (UndefineFunction _ t _ params _) =
+  CbFunction t $ map declToType params
+declToType (Struct  _ name params _) = CbStruct name params
+declToType (Union   _ name params _) = CbUnion name params
+declToType (Typedef _ t    _      _) = t
 
 --------------------------------- stmt ------------------------------------
 
@@ -140,8 +146,8 @@ data Expr
   | BoolLiteral FC Bool
   deriving (Eq, Show, Ord, Generic)
 
-declId :: Expr -> Int
-declId (Decl _ _ id) = id
+declExprId :: Expr -> Int
+declExprId (Decl _ _ id) = id
 
 isLValue :: Expr -> Bool
 isLValue Decl{}     = True
@@ -165,10 +171,10 @@ data Import = Import
 
 --------------------------------- type ------------------------------------
 
-data Param
-  = Param
-    { paramType :: Type
-    , paramName :: String
+data Slot
+  = Slot
+    { slotType :: Type
+    , slotName :: String
     }
   deriving (Show, Eq, Ord, Generic)
 
@@ -182,8 +188,8 @@ data Type
   | CbDouble
   | CbArray Type Int
   | CbPtr Type
-  | CbStruct String [Param]
-  | CbUnion String [Param]
+  | CbStruct String [Slot]
+  | CbUnion String [Slot]
   | CbFunction Type [Type]
   | CbConst Type
   | CbUnknown String
@@ -274,18 +280,18 @@ isFloat t           = t `elem` [CbFloat, CbDouble]
 isNumber :: Type -> Bool
 isNumber t = isFloat t || isInteger t
 
-findMem :: Type -> String -> Maybe Param
+findMem :: Type -> String -> Maybe Slot
 findMem t@(CbStruct _ params) name =
-  listToMaybe $ filter (\p -> name == paramName p) params
+  listToMaybe $ filter (\p -> name == slotName p) params
 findMem t@(CbUnion _ params) name =
-  listToMaybe $ filter (\p -> name == paramName p) params
+  listToMaybe $ filter (\p -> name == slotName p) params
 findMem _ _ = Nothing
 
-findPtrMem :: Type -> String -> Maybe Param
+findPtrMem :: Type -> String -> Maybe Slot
 findPtrMem t@(CbPtr (CbStruct _ params)) name =
-  listToMaybe $ filter (\p -> name == paramName p) params
+  listToMaybe $ filter (\p -> name == slotName p) params
 findPtrMem t@(CbPtr (CbUnion _ params)) name =
-  listToMaybe $ filter (\p -> name == paramName p) params
+  listToMaybe $ filter (\p -> name == slotName p) params
 findPtrMem _ _ = Nothing
 
 unknown :: Type -> Bool
@@ -295,11 +301,11 @@ unknown _             = False
 sizeof :: Type -> Int
 sizeof = undefined
 
-offsetByParams :: [Param] -> String -> Maybe Int
+offsetByParams :: [Slot] -> String -> Maybe Int
 offsetByParams []       _    = Nothing
-offsetByParams (p : ps) name = if paramName p == name
+offsetByParams (p : ps) name = if slotName p == name
   then Just 0
-  else (+) (sizeof $ paramType p) <$> offsetByParams ps name
+  else (+) (sizeof $ slotType p) <$> offsetByParams ps name
 
 offset :: Type -> String -> Maybe Int
 offset (CbStruct _ params) name = offsetByParams params name
@@ -307,7 +313,7 @@ offset CbUnion{}           _    = Just 0
 offset _                   _    = Nothing
 
 instance Out FC
-instance Out Param
+instance Out Slot
 instance Out Type
 instance Out Expr
 instance Out Stmt

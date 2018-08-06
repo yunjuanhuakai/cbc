@@ -81,13 +81,13 @@ insertDeclToScope name decl = do
   put $ ist { scope = oldScope { decls = Map.insert name decl oldDecls } }
 
 pushDeclToScope :: Declaration -> CbParser ()
-pushDeclToScope decl@(UndefineFunction _ _ funcName _) = do
+pushDeclToScope decl@(UndefineFunction _ _ funcName _ _) = do
   ist <- get
   case searchByScope funcName ist of
     Nothing         -> insertDeclToScope funcName decl
     Just Function{} -> pure ()
     _               -> fail "存在重复声明"
-pushDeclToScope decl@(Function _ _ funcName _ _) = do
+pushDeclToScope decl@(Function _ _ funcName _ _ _) = do
   ist <- get
   case searchByScope funcName ist of
     Nothing                 -> insertDeclToScope funcName decl
@@ -117,16 +117,8 @@ primary = CharLiteral <$> getFC <*> charLiteral
     name <- identifier
     fc   <- getFC
     case searchByScope name ist of
-      Just decl -> Decl fc name <$> idGen decl
+      Just decl -> pure $ Decl fc name $ declId decl
       _         -> fail "match var fail"
-  declToHandler decl = DeclHandler $ declToType decl
-  idGen decl = do
-    ist <- get
-    let id = declCount ist + 1
-    put $ ist 
-      { declCount = id
-      , handlers = Map.insert id (declToHandler decl) (handlers ist)}
-    pure id
 
 orOp :: Parsing m => [String] -> m String
 orOp ls = foldr1 (<|>) (map lstring ls)
@@ -201,7 +193,7 @@ expr = expr_assign <|> expr_opassign <|> expr10
   opassign_op = rword "+=" $>  "+"
             <|> rword "-=" $>  "-"
             <|> rword "*=" $>  "*"
-            <|> rword "/=" $>  "/" 
+            <|> rword "/=" $>  "/"
             <|> rword "%=" $>  "%"
             <|> rword "&=" $>  "&"
             <|> rword "|=" $>  "|"
@@ -304,32 +296,51 @@ for_ :: CbParser Stmt
 for_ =
   For
     <$> getFC
-    <* rword "for"
-    <* lchar '('
-    <*> P.optional expr' <* lchar ';'
-    <*> P.optional expr  <* lchar ';'
+    <*  rword "for"
+    <*  lchar '('
     <*> P.optional expr'
-    <* lchar ')'
-    <* lchar '{'
-    <*> block_ True 
-    <* lchar '}'
+    <*  lchar ';'
+    <*> P.optional expr
+    <*  lchar ';'
+    <*> P.optional expr'
+    <*  lchar ')'
+    <*  lchar '{'
+    <*> block_ True
+    <*  lchar '}'
 
-block_ :: Bool -> CbParser Stmt
-block_ b = do
+block' :: Bool -> [Declaration] -> CbParser Stmt
+block' b decls = do
   ist <- get
   when b pushScope
+  forM_ decls pushDeclToScope
   res <- P.many (P.try (Left <$> defvar') <|> (Right <$> stmt)) >>= block_stmt'
   nst <- get
-  when b (put $ nst {scope = scope ist})
+  when b (put $ nst { scope = scope ist })
   return res
  where
-  block_stmt' = block ([], [])
+  defvar' = defvarNoParam >>= \d -> do pushDeclToScope d; pure d
+  block_stmt' = block (decls, [])
   block (vs, ss) (Left  v  : es) = block (v : vs, ss) es
   block (vs, ss) (Right st : es) = block (vs, st : ss) es
   block (vs, ss) []              = Block <$> getFC <*> pure vs <*> pure ss
+  getDecls (Block _ decls _) = decls
+
+block_ :: Bool -> CbParser Stmt
+block_ b = block' b []
 
 ---------------------------- decl ----------------------------------
+declIdGen :: CbParser Int
+declIdGen = do
+  ist <- get
+  let id = declCount ist + 1
+  put $ ist { declCount = id }
+  pure id
 
+declHandlerGen :: Declaration -> CbParser ()
+declHandlerGen decl = do
+  ist <- get
+  put $ ist { handlers = Map.insert (declId decl) (declToHandler decl) (handlers ist) }
+  where declToHandler decl = DeclHandler $ declToType decl
 
 declaration :: CbParser Declaration
 declaration =
@@ -338,22 +349,22 @@ declaration =
     <|> typedef
     <|> P.try declfun'
     <|> P.try defun
-    <|> defvar
+    <|> defvarNoParam
     >>= \decl -> do
           pushDeclToScope decl
+          declHandlerGen decl
           pure decl
 
 declarationByImport :: CbParser Declaration
 declarationByImport =
-  defsturt <|> defunion <|> typedef <|> P.try declfun' <|> defvar >>= \decl ->
+  defsturt <|> defunion <|> typedef <|> P.try declfun' <|> defvarNoParam >>= \decl ->
     do
       pushDeclToScope decl
+      declHandlerGen decl
       pure decl
 
-defvar' :: CbParser Declaration
-defvar' = defvar >>= \decl -> do
-  pushDeclToScope decl
-  pure decl
+defvarNoParam :: CbParser Declaration
+defvarNoParam = defvar <* lchar ';'
 
 defvar :: CbParser Declaration
 defvar =
@@ -362,7 +373,10 @@ defvar =
     <*> type_
     <*> identifier
     <*> P.optional (lchar '=' *> expr)
-    <*  lchar ';'
+    <*> declIdGen
+    >>= \decl -> do 
+      declHandlerGen decl
+      pure decl
 
 declfun :: CbParser Declaration
 declfun =
@@ -370,16 +384,20 @@ declfun =
     <$> getFC
     <*> type_
     <*> identifier
-    <*> (lchar '(' *> params ',' <* lchar ')')
+    <* lchar '(' <*> params <* lchar ')'
+    <*> declIdGen
+  where params = P.sepEndBy defvar $ lchar ','
 
 declfun' :: CbParser Declaration
 declfun' = declfun <* lchar ';'
 
 defun :: CbParser Declaration
-defun = declfun >>= defun' (lchar '{' *> block_ True <* lchar '}')
+defun = declfun >>= defun'
  where
-  defun' stmt (UndefineFunction fc t name params) =
-    Function fc t name params <$> stmt
+  defun' (UndefineFunction fc t name params id) =
+    Function fc t name params
+      <$> (lchar '{' *> block' True params <* lchar '}')
+      <*> declIdGen
 
 addType :: Declaration -> CbParser Declaration
 addType decl = do
@@ -397,9 +415,10 @@ defsturt =
     *>  (   Struct
         <$> getFC
         <*> identifier
-        <*> (lchar '{' *> params ';' <* lchar '}')
+        <*> (lchar '{' *> slots ';' <* lchar '}')
         )
     <*  lchar ';'
+    <*> declIdGen
     >>= addType
 
 defunion :: CbParser Declaration
@@ -408,9 +427,10 @@ defunion =
     *>  (   Union
         <$> getFC
         <*> identifier
-        <*> (lchar '{' *> params ';' <* lchar '}')
+        <*> (lchar '{' *> slots ';' <* lchar '}')
         )
     <*  lchar ';'
+    <*> declIdGen
     >>= addType
 
 typedef :: CbParser Declaration
@@ -418,12 +438,13 @@ typedef =
   rword "typedef"
     *>  (Typedef <$> getFC <*> type_ <*> identifier)
     <*  lchar ';'
+    <*> declIdGen
     >>= addType
 
-params :: Char -> CbParser [Param]
-params c = P.sepEndBy param (lchar c)
+slots :: Char -> CbParser [Slot]
+slots c = P.sepEndBy slot (lchar c)
  where
-  param = Param <$> type_ <*> identifier
+  slot = Slot <$> type_ <*> identifier
 
 ------------------------------- type -----------------------------------
 

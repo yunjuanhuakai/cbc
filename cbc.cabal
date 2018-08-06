@@ -4,7 +4,7 @@ cabal-version: >= 1.10
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: f7d58718d433d8f972bb7ca806ab5e623a958ef1cc407f13f248f359e46b2b57
+-- hash: 489afc79f5be4e5bf02ce6a070076f4468d0bc1db11a9155c9e698bd32487d6f
 
 name:           cbc
 version:        0.1.0.0
@@ -52,7 +52,6 @@ library
       Project
       Type.Check
       Type.Resolver
-      Type.State
   other-modules:
       Paths_cbc
   default-language: Haskell2010

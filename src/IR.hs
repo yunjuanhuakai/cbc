@@ -6,9 +6,7 @@ import qualified Ast                           as A
 import           GHC.Generics                   ( Generic )
 import           Text.PrettyPrint.GenericPretty ( Out )
 
-data IR = S Stmt
-        | E Expr
-        deriving (Show, Eq, Ord, Generic)
+type IR = [Stmt]
 
 data Type = I8
           | I16
@@ -79,9 +77,7 @@ data Op = ADD
 
 transformOp :: String -> Op
 transformOp "+"  = ADD
-transformOp "++" = ADD
 transformOp "-"  = SUB
-transformOp "--" = SUB
 transformOp "*"  = MUL
 transformOp "/"  = DIV
 transformOp "%"  = MOD
@@ -98,3 +94,8 @@ transformOp ">=" = GTEQ
 transformOp "<"  = LT_
 transformOp "<=" = LTEQ
 transformOp "!"  = NOT
+
+instance Out Stmt
+instance Out Expr
+instance Out Op
+instance Out Type

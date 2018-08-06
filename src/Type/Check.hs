@@ -31,7 +31,7 @@ checkCase e = do
 
 
 checkVar :: Declaration -> Cb Declaration
-checkVar d@(Variable fc t name init) = if isJust init
+checkVar d@(Variable fc t name init _) = if isJust init
   then do
     vt <- fmap (\s -> exprTypes s Map.! fromJust init) get
     if pormot vt t then pure d else fail "初始化语句与变量类型不符"
@@ -46,14 +46,14 @@ checkReturn t      [Return _ (Just e)] = computeType e
 checkReturn t (stmt : stmts) = checkReturn t stmts
 
 checkFunction :: Declaration -> Cb Declaration
-checkFunction d@(Function fc rt name params body) = case body of
+checkFunction d@(Function fc rt name params body _) = case body of
   (Block _ _ stmts) -> checkReturn rt stmts $> d
   _                 -> fail "函数定义的结构异常"
 
 ----------------------- rcursive ----------------------------------
 
-checkRcursiveParams :: Type -> [Type] -> Cb Bool
-checkRcursiveParams t ts = do
+checkRcursiveSlots :: Type -> [Type] -> Cb Bool
+checkRcursiveSlots t ts = do
     cst <- get
     let s = rcursive cst
     case Map.lookup t s of
@@ -73,10 +73,10 @@ checkRcursiveParams t ts = do
           pure res
 
 checkRcursive :: Type -> Cb Bool
-checkRcursive t@(CbStruct name params) =
-    checkRcursiveParams t (fmap paramType params)
-checkRcursive t@(CbUnion name params) =
-    checkRcursiveParams t (fmap paramType params)
+checkRcursive t@(CbStruct name slots) =
+    checkRcursiveSlots t (fmap slotType slots)
+checkRcursive t@(CbUnion name slots) =
+    checkRcursiveSlots t (fmap slotType slots)
 checkRcursive (CbArray t _) = checkRcursive t
 checkRcursive (CbConst t  ) = checkRcursive t
 checkRcursive t             = do
@@ -191,12 +191,12 @@ computeType (Dereference fc expr) = do
 computeType (Member fc name expr) = do
   t <- computeType expr
   case findMem t name of
-    Just (Param t _) -> pure t
+    Just (Slot t _) -> pure t
     Nothing          -> fail $ "无法获取 " ++ name ++ " 成员的类型"
 computeType (PtrMember fc name expr) = do
   t <- computeType expr
   case findPtrMem t name of
-    Just (Param t _) -> pure t
+    Just (Slot t _) -> pure t
     Nothing          -> fail $ "无法获取 " ++ name ++ " 成员的类型"
 computeType (Arrayref fc ve ie) = do
   vt <- computeType ve

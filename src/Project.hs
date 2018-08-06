@@ -18,6 +18,7 @@ import           Parser
 import           Control.Monad.Trans.Except     ( runExceptT )
 import           Control.Monad.Trans.State.Strict
                                                 ( runStateT )
+import qualified IR
 import           Ast
 import           IState
 import qualified Type.Resolver                 as TC
@@ -36,7 +37,7 @@ cbMain home = do
   put $ ist { projectDriectory = path }
   sourceNames <- findSource
   sources     <- mapM readSource sourceNames
-  zipWithM parserUnit' sourceNames sources
+  zipWithM parser' sourceNames sources
 
 runparser :: Parser st res -> st -> String -> String -> Either ParseError res
 runparser p i inputname s =
@@ -44,8 +45,8 @@ runparser p i inputname s =
     Left  err -> Left $ ParseError s err
     Right v   -> Right $ fst v
 
-parserUnit' :: FilePath -> String -> Cb Unit
-parserUnit' fname input = do
+parser' :: FilePath -> String -> Cb Unit
+parser' fname input = do
   u   <- parserUnit fname input
   TC.unit u
   

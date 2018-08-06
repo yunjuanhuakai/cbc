@@ -17,6 +17,9 @@ import           Control.Monad.State.Strict     ( StateT(..)
                                                 , put
                                                 )
 
+
+-----------------------------------------------------------------------
+
 addStmt :: Stmt -> Cb ()
 addStmt s = do
   i <- get
@@ -193,6 +196,7 @@ transformStmt (A.Continue _) = topContinue >>= jump
 transformStmt (A.Return _ maybeExpr) =
   mapM transformExpr' maybeExpr >>= return_
 transformStmt (A.Expression _ expr) = transformExpr' expr >>= expression
+transformStmt (A.Block _ _ stmts) = forM_ stmts transformStmt 
 
 transformExpr' :: A.Expr -> Cb Expr
 transformExpr' e = do
