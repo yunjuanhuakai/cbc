@@ -261,34 +261,45 @@ queryTypeTwo' le re = do
 isStatement :: Cb Bool
 isStatement = fmap (\ist -> level ist == 1) get
 
-transformBin :: A.Expr -> String -> A.Expr -> Cb Expr
-transformBin lae op rae = do
-  lt <- queryType lae
-  rt <- queryType rae
-
-  le <- transformExpr' lae
-  re <- transformExpr' rae
-  if | A.isPtr lt && A.isPtr rt && op == "-" -> 
-       pure $ Bin DIV UI64 (Bin SUB UI64 le re) (I $ A.sizeof lt)
-     | A.isPtr lt -> 
-       pure $ Bin (transformOp op) UI64 le (Bin MUL UI64 re $ I (A.sizeof lt))
-     | A.isPtr rt -> 
-       pure $ Bin (transformOp op) UI64 (Bin MUL UI64 le $ I (A.sizeof rt)) re
-     | otherwise -> 
-       Bin (transformOp op) <$> queryTypeTwo' lae rae <*> pure le <*> pure re
+transformBin :: Expr -> A.Type -> String -> Expr -> A.Type -> Cb Expr
+transformBin le lt op re rt = if 
+  | A.isPtr lt && A.isPtr rt && op == "-" -> 
+    pure $ Bin DIV UI64 (Bin SUB UI64 le re) (I $ A.sizeof lt)
+  | A.isPtr lt -> 
+    pure $ Bin (transformOp op) UI64 le (Bin MUL UI64 re $ I (A.sizeof lt))
+  | A.isPtr rt -> 
+    pure $ Bin (transformOp op) UI64 (Bin MUL UI64 le $ I (A.sizeof rt)) re
+  | otherwise -> do
+    t <- pormotTwo lt rt
+    pure $ Bin (transformOp op) (transformType t) le re
 
 transformOpAssign :: A.Expr -> String -> A.Expr -> Cb Expr
 transformOpAssign lae op rae = do
-  lt <- queryType lae
-  rt <- queryType rae
-  t  <- pormotTwo lt rt
-  A.Assign A.NoFC lae <$> tmpVar t >>= transformExpr'
+  lt  <- queryType lae
+  rt  <- queryType rae
+
+  le <- transformExpr' lae
+  re <- transformExpr' rae
+
+  a <- tmpVar (A.CbPtr lt) >>= transformExpr'
+  tmp <- tmpVar lt >>= transformExpr'
+  assign a (Addr le)
+  assign tmp le
+  bin <- transformBin tmp lt op re rt
+  assign (Mem a) bin
+  pure bin
 
 transformExpr :: A.Expr -> Cb Expr
 transformExpr (A.Unary _ "+" expr) = transformExpr' expr
 transformExpr (A.Unary _ "-" expr) =
   Uni UMINUS <$> queryType' expr <*> transformExpr' expr
-transformExpr (  A.Binary _ op le re ) = transformBin le op re
+transformExpr (  A.Binary _ op le re ) = do
+  lt <- queryType le
+  rt <- queryType re
+
+  lre <- transformExpr' le
+  rre <- transformExpr' re
+  transformBin lre lt op rre rt
 transformExpr e@(A.Member _ name expr) = do
   ptr <- Addr <$> transformExpr' expr
   Mem <$> (Bin ADD UI64 ptr <$> fmap I (offset' e))

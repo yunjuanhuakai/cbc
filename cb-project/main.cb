@@ -29,5 +29,7 @@ void init() {
     int j;
     for (i = 0, j = 10; i != 10 and j != 0; ++i, --j) {
     }
+    int *p;
+    *p++ = 9;
     return;
 }
