@@ -5,6 +5,7 @@ import qualified Ast                           as A
 import           IR
 import           IState
 import           Helper
+import           Type.Check
 
 import           Data.Char
 import qualified Data.Map.Strict               as Map
@@ -19,6 +20,38 @@ import           Control.Monad.State.Strict     ( StateT(..)
 
 
 -----------------------------------------------------------------------
+
+queryType :: A.Expr -> Cb A.Type
+queryType e = do
+  ist <- get
+  case Map.lookup e (exprTypes ist) of
+    Just t  -> pure t
+    Nothing -> computeType e
+
+queryTypeTwo :: A.Expr -> A.Expr -> Cb A.Type
+queryTypeTwo le re = do
+  lt <- queryType le
+  rt <- queryType re
+  pormotTwo lt rt
+
+offset' :: A.Expr -> Cb Int
+offset' (A.Member _ name expr) = do
+  t <- queryType expr
+  case A.offset t name of
+    Just n -> pure n
+    Nothing -> fail "错误的成员变量偏移量计算"
+offset' _ = fail "无法计算偏移量"
+
+tmpVar :: A.Type -> Cb A.Expr
+tmpVar t = do
+  ist <- get
+  let id = declCount ist + 1
+  let handler = DeclHandler t
+  put $ ist 
+    { declCount = id
+    , handlers = Map.insert id handler $ handlers ist
+    }
+  pure $ A.Decl A.NoFC ("#tmp" ++ show id) id
 
 addStmt :: Stmt -> Cb ()
 addStmt s = do
@@ -43,10 +76,10 @@ expression e = addStmt $ Expression e
 assign :: Expr -> Expr -> Cb ()
 assign le re = addStmt $ Assign le re
 
-labelGen :: Cb Stmt
-labelGen = do
+labelGen :: String -> Cb Stmt
+labelGen str = do
   i <- get
-  let res = Label $ show $ labelCount i
+  let res = Label (str ++ show (labelCount i))
   put $ i { labelCount = labelCount i + 1 }
   return res
 
@@ -80,16 +113,22 @@ topContinue = head . continueStack <$> get
 
 transformCase :: Expr -> A.Stmt -> Cb ()
 transformCase cv (A.Case _ expr body) = do
-  thenLabel <- labelGen
+  thenLabel <- labelGen "then"
 
   tv        <- transformExpr' expr
-  cjump (Bin EQ_ I8 cv tv) <$> pure thenLabel <*> topBrack
+  lab       <- topBrack
+  cjump (Bin EQ_ I8 cv tv) thenLabel lab
   label thenLabel
   transformStmt body
 
+transformStmt' :: A.Stmt -> Cb [Stmt]
+transformStmt' s = do
+  transformStmt s
+  fmap (reverse . stmts) get
+
 transformStmt :: A.Stmt -> Cb ()
 transformStmt (A.Switch _ cond cases default_) = do
-  endLabel <- labelGen
+  endLabel <- labelGen "end"
   cv       <- transformExpr' cond
 
   pushBrack endLabel
@@ -102,20 +141,22 @@ transformStmt A.Case{}                       = fail "出现位置错误的case"
 transformStmt (A.Default _ body            ) = transformStmt body
 
 transformStmt (A.If _ cond thenBody Nothing) = do
-  thenLabel <- labelGen
-  endLabel  <- labelGen
+  thenLabel <- labelGen "then"
+  endLabel  <- labelGen "end"
 
-  cjump <$> transformExpr' cond <*> pure thenLabel <*> pure endLabel
+  e <- transformExpr' cond
+  cjump e thenLabel endLabel
   addStmt thenLabel
   transformStmt thenBody
   addStmt endLabel
 
 transformStmt (A.If _ cond thenBody (Just elseBody)) = do
-  thenLabel <- labelGen
-  elseLabel <- labelGen
-  endLabel  <- labelGen
+  thenLabel <- labelGen "then"
+  elseLabel <- labelGen "else"
+  endLabel  <- labelGen "end"
 
-  cjump <$> transformExpr' cond <*> pure thenLabel <*> pure elseLabel
+  e <- transformExpr' cond
+  cjump e thenLabel elseLabel
   label thenLabel
   transformStmt thenBody
   jump endLabel
@@ -124,12 +165,13 @@ transformStmt (A.If _ cond thenBody (Just elseBody)) = do
   label endLabel
 
 transformStmt (A.While _ cond body) = do
-  begLabel  <- labelGen
-  bodyLabel <- labelGen
-  endLabel  <- labelGen
+  begLabel  <- labelGen "whildBeg"
+  bodyLabel <- labelGen "whileBody"
+  endLabel  <- labelGen "whildEnd"
 
   label begLabel
-  cjump <$> transformExpr cond <*> pure bodyLabel <*> pure endLabel
+  e <- transformExpr' cond
+  cjump e bodyLabel endLabel
   label bodyLabel
 
   pushContinue begLabel
@@ -144,9 +186,9 @@ transformStmt (A.While _ cond body) = do
   label endLabel
 
 transformStmt (A.DoWhile _ body cond) = do
-  begLabel  <- labelGen
-  bodyLabel <- labelGen
-  endLabel  <- labelGen
+  begLabel  <- labelGen "beg"
+  bodyLabel <- labelGen "body"
+  endLabel  <- labelGen "end"
 
   pushContinue begLabel
   pushBrack endLabel
@@ -158,23 +200,22 @@ transformStmt (A.DoWhile _ body cond) = do
   popBrack
   popContinue
 
-  cjump <$> transformExpr cond <*> pure bodyLabel <*> pure endLabel
+  e <- transformExpr' cond
+  cjump e bodyLabel endLabel
   label endLabel
 
 transformStmt (A.For _ init cond next body) = do
-  begLabel  <- labelGen
-  bodyLabel <- labelGen
-  endLabel  <- labelGen
+  begLabel  <- labelGen "forBeg"
+  bodyLabel <- labelGen "forBody"
+  endLabel  <- labelGen "forEnd"
 
   mapM_ transformExpr' init
   label begLabel
   if isJust cond
-    then
-      cjump
-      <$> transformExpr' (fromJust cond)
-      <*> pure bodyLabel
-      <*> pure endLabel
-    else pure $ jump bodyLabel
+    then do 
+      e <- transformExpr' (fromJust cond)
+      cjump e bodyLabel endLabel
+    else jump bodyLabel
   label bodyLabel
 
   pushContinue begLabel
@@ -196,14 +237,15 @@ transformStmt (A.Continue _) = topContinue >>= jump
 transformStmt (A.Return _ maybeExpr) =
   mapM transformExpr' maybeExpr >>= return_
 transformStmt (A.Expression _ expr) = transformExpr' expr >>= expression
-transformStmt (A.Block _ _ stmts) = forM_ stmts transformStmt 
+transformStmt (A.Block _ _ stmts) = forM_ (reverse stmts) transformStmt 
 
 transformExpr' :: A.Expr -> Cb Expr
 transformExpr' e = do
   i <- get
   put $ i { level = level i + 1 }
   res <- transformExpr e
-  put $ i { level = level i - 1 }
+  ni <- get
+  put $ ni { level = level ni - 1 }
   return res
 
 queryType' :: A.Expr -> Cb Type
@@ -257,9 +299,7 @@ transformExpr (A.Assign _ le re) = do
   lhs <- transformExpr' le
   rhs <- transformExpr' re
   if b
-    then do
-      assign lhs rhs
-      pure lhs
+    then do assign lhs rhs; pure lhs
     else do
       -- lhs 在赋值表达式为子表达式的情况下，使用两次可能会导致副作用从而影响语义
       -- 因此引入临时变量，将最终结果记录下来
@@ -295,12 +335,13 @@ transformExpr (A.Cast _ t expr) = do
   put $ ist { exprTypes = Map.insert expr t $ exprTypes ist }
   transformExpr' expr
 transformExpr (A.Cond _ cond then_ else_) = do
-  thenLabel <- labelGen
-  elseLabel <- labelGen
-  endLabel  <- labelGen
+  thenLabel <- labelGen "condThen"
+  elseLabel <- labelGen "condElse"
+  endLabel  <- labelGen "condEnd"
 
   tmp       <- queryType then_ >>= tmpVar >>= transformExpr'
-  cjump <$> transformExpr' cond <*> pure thenLabel <*> pure elseLabel
+  e <- transformExpr' cond 
+  cjump e thenLabel elseLabel
   label thenLabel
   transformExpr' then_ >>= assign tmp
   jump endLabel

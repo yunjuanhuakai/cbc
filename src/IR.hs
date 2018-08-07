@@ -72,28 +72,33 @@ data Op = ADD
         | LTEQ
         | UMINUS
         | NOT
+        | AND
+        | OR
         | CAST
         deriving (Show, Eq, Ord, Generic)
 
 transformOp :: String -> Op
-transformOp "+"  = ADD
-transformOp "-"  = SUB
-transformOp "*"  = MUL
-transformOp "/"  = DIV
-transformOp "%"  = MOD
-transformOp "~"  = BIT_NO
-transformOp "&"  = BIT_AND
-transformOp "|"  = BIT_OR
-transformOp "^"  = BIT_XOR
-transformOp "<<" = BIT_LSHLFT
-transformOp ">>" = BIT_RSHLFT
-transformOp "==" = EQ_
-transformOp "!=" = NEQ_
-transformOp ">"  = GT_
-transformOp ">=" = GTEQ
-transformOp "<"  = LT_
-transformOp "<=" = LTEQ
-transformOp "!"  = NOT
+transformOp "+"   = ADD
+transformOp "-"   = SUB
+transformOp "*"   = MUL
+transformOp "/"   = DIV
+transformOp "%"   = MOD
+transformOp "~"   = BIT_NO
+transformOp "&"   = BIT_AND
+transformOp "|"   = BIT_OR
+transformOp "^"   = BIT_XOR
+transformOp "<<"  = BIT_LSHLFT
+transformOp ">>"  = BIT_RSHLFT
+transformOp "=="  = EQ_
+transformOp "!="  = NEQ_
+transformOp ">"   = GT_
+transformOp ">="  = GTEQ
+transformOp "<"   = LT_
+transformOp "<="  = LTEQ
+transformOp "!"   = NOT
+transformOp "and" = AND
+transformOp "or"  = OR
+
 
 instance Out Stmt
 instance Out Expr

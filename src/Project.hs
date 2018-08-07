@@ -18,7 +18,9 @@ import           Parser
 import           Control.Monad.Trans.Except     ( runExceptT )
 import           Control.Monad.Trans.State.Strict
                                                 ( runStateT )
+import           Data.Maybe
 import qualified IR
+import qualified IRGenerator as G
 import           Ast
 import           IState
 import qualified Type.Resolver                 as TC
@@ -30,7 +32,7 @@ runMain prog = do
     Left  e -> fail $ show e
     Right r -> return r
 
-cbMain :: FilePath -> Cb [Unit]
+cbMain :: FilePath -> Cb [[IR.IR]]
 cbMain home = do
   ist  <- get
   path <- runIO $ canonicalizePath home
@@ -45,10 +47,14 @@ runparser p i inputname s =
     Left  err -> Left $ ParseError s err
     Right v   -> Right $ fst v
 
-parser' :: FilePath -> String -> Cb Unit
+parser' :: FilePath -> String -> Cb [IR.IR]
 parser' fname input = do
-  u   <- parserUnit fname input
-  TC.unit u
+  u   <- parserUnit fname input >>= TC.unit
+  let fs  = fmap (functionBody . fromJust) $ filter isJust $ fmap func (declarations u)
+  
+  mapM G.transformStmt' fs
+  where func f@Function{} = Just f
+        func _ = Nothing
   
 parseImports :: FilePath -> String -> Cb (Maybe Mark, [Declaration])
 parseImports fname input = do
