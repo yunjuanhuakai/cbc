@@ -3,10 +3,13 @@
 module IR where
 
 import qualified Ast                           as A
+import qualified Data.Vector                   as V
+import qualified Data.Set                      as S
+import           Data.Maybe
 import           GHC.Generics                   ( Generic )
 import           Text.PrettyPrint.GenericPretty ( Out )
 
-type IR = [Stmt]
+type IR = V.Vector Stmt
 
 data Type = I8
           | I16
@@ -42,6 +45,19 @@ data Stmt = Assign Expr Expr
           | Return (Maybe Expr)
           deriving (Show, Eq, Ord, Generic)
 
+isAssign :: Stmt -> Bool
+isAssign Assign{} = True
+isAssign _        = False
+
+assignLv :: Stmt -> Maybe Expr
+assignLv (Assign lv _) = Just lv
+assignLv _             = Nothing
+
+assignLvs :: IR -> S.Set Expr
+assignLvs ir =
+        let assigns = fromJust <$> V.filter isJust (assignLv <$> ir)
+        in  S.fromList $ V.toList assigns
+
 data Expr = Uni Op Type Expr
           | Bin Op Type Expr Expr
           | Call Expr [Expr]
@@ -52,6 +68,31 @@ data Expr = Uni Op Type Expr
           | I Int
           | F Double
           deriving (Show, Eq, Ord, Generic)
+
+lvalue :: Expr -> Bool
+lvalue Mem{} = True
+lvalue Var{} = True
+lvalue _     = False
+
+lvalues :: IR -> S.Set Expr
+lvalues ir = S.unions $ lvaluesByStmt <$> V.toList ir
+    where
+        lvaluesByStmt (Assign lv rv) =
+                lvaluesByExpr lv `S.union` lvaluesByExpr rv
+        lvaluesByStmt (CJump cv then_ else_) = lvaluesByExpr cv
+        lvaluesByStmt (Expression ex       ) = lvaluesByExpr ex
+        lvaluesByStmt (Return     (Just e) ) = lvaluesByExpr e
+        lvaluesByStmt _                      = S.empty
+
+        lvaluesByExpr (Uni _ _ e) = lvaluesByExpr e
+        lvaluesByExpr (Bin _ _ le re) =
+                lvaluesByExpr le `S.union` lvaluesByExpr re
+        lvaluesByExpr (Call fe pes) =
+                S.unions $ lvaluesByExpr fe : (lvaluesByExpr <$> pes)
+        lvaluesByExpr (  Addr e ) = lvaluesByExpr e
+        lvaluesByExpr e@(Mem  me) = S.insert e $ lvaluesByExpr me
+        lvaluesByExpr e@Var{}     = S.insert e S.empty
+        lvaluesByExpr _           = S.empty
 
 data Op = ADD
         | SUB

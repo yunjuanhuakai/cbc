@@ -1,9 +1,10 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric, OverloadedLists #-}
 
 module IState where
 
 import qualified Ast                           as A
 import qualified IR                            as R
+import qualified Data.Vector                   as V
 import qualified Data.Map.Strict               as Map
 import           GHC.Generics                   ( Generic )
 import           Text.PrettyPrint.GenericPretty ( Out )
@@ -19,7 +20,7 @@ data Flag = Checking | Checked
 
 data DeclHandler = DeclHandler
   { handlerType :: A.Type
-  } 
+  }
   deriving (Eq, Show, Ord, Generic)
 
 data IState = IState
@@ -36,7 +37,7 @@ data IState = IState
 -- gen ir
   , level            :: Integer
   , labelCount       :: Integer
-  , stmts            :: [R.Stmt]
+  , ir               :: V.Vector R.Stmt
   , breakStack       :: [R.Stmt]
   , continueStack    :: [R.Stmt]
   }
@@ -52,7 +53,7 @@ cbInit = IState typeInit
                 exprTypesInit
                 levelInit
                 labelCountInit
-                stmtsInit
+                irInit
                 brackStackInit
                 continueStackInit
  where
@@ -65,7 +66,7 @@ cbInit = IState typeInit
   rcursiveInit      = Map.empty
   exprTypesInit     = Map.empty
   labelCountInit    = 0
-  stmtsInit         = []
+  irInit            = []
   brackStackInit    = []
   continueStackInit = []
 

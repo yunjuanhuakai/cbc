@@ -8,6 +8,7 @@ import           Helper
 import           Type.Check
 
 import           Data.Char
+import qualified Data.Vector                   as V
 import qualified Data.Map.Strict               as Map
 import           Data.Maybe
 import           Control.Monad
@@ -56,7 +57,7 @@ tmpVar t = do
 addStmt :: Stmt -> Cb ()
 addStmt s = do
   i <- get
-  put $ i { stmts = s : stmts i }
+  put $ i { ir = V.snoc (ir i) s }
 
 cjump :: Expr -> Stmt -> Stmt -> Cb ()
 cjump cond thenLabel elseLabel = addStmt $ CJump cond thenLabel elseLabel
@@ -121,10 +122,10 @@ transformCase cv (A.Case _ expr body) = do
   label thenLabel
   transformStmt body
 
-transformStmt' :: A.Stmt -> Cb [Stmt]
+transformStmt' :: A.Stmt -> Cb (V.Vector Stmt)
 transformStmt' s = do
   transformStmt s
-  fmap (reverse . stmts) get
+  fmap ir get
 
 transformStmt :: A.Stmt -> Cb ()
 transformStmt (A.Switch _ cond cases default_) = do
