@@ -6,6 +6,7 @@ import qualified Ast                           as A
 import qualified Data.Vector                   as V
 import qualified Data.Set                      as S
 import           Data.Maybe
+import           Data.Monoid
 import           GHC.Generics                   ( Generic )
 import           Text.PrettyPrint.GenericPretty ( Out )
 
@@ -53,10 +54,24 @@ assignLv :: Stmt -> Maybe Expr
 assignLv (Assign lv _) = Just lv
 assignLv _             = Nothing
 
-assignLvs :: IR -> S.Set Expr
-assignLvs ir =
+count :: (Eq a, Foldable t) => t a -> [(a, Int)]
+count = foldr impl []
+    where
+        impl a [] = [(a,1)]
+        impl a (x:xs)
+          | fst x == a = (a,snd x + 1) : impl a xs
+          | otherwise = impl a xs
+
+killLvs :: IR -> [Expr]
+killLvs ir =
         let assigns = fromJust <$> V.filter isJust (assignLv <$> ir)
-        in  S.fromList $ V.toList assigns
+        in  V.toList assigns
+
+prsv :: IR -> S.Set Expr
+prsv ir = lvalues ir `S.difference` S.fromList (killLvs ir)
+
+genLvs :: IR -> S.Set Expr
+genLvs ir = S.fromList $ fst <$> filter ((== 1) . snd) (count $ killLvs ir)
 
 data Expr = Uni Op Type Expr
           | Bin Op Type Expr Expr

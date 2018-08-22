@@ -12,6 +12,7 @@ import           Data.List
 import           Data.Maybe
 import qualified Data.Graph.Inductive          as G
 import           Control.Monad.Trans.Reader
+import           Control.Monad.Trans.State
 import           Control.Monad.Trans.Maybe
 import           Control.Monad.Trans            ( lift )
 import           Control.Monad.ST
@@ -68,29 +69,87 @@ assignInBlock le (FCBlock ir) = match ir
             Just lv -> (lv == le) || match (V.tail ir)
             _       -> match (V.tail ir)
 
-type LVSet = M.Map G.Node (S.Set Expr)
+type NMap a = M.Map G.Node a
 
-varSet :: CFG (LVSet, LVSet)
+class Lattices a where
+    top, bottom :: a
+    (\/), (/\) :: a -> a -> a
+
+type FlowF a = G.Node -> a -> a
+
+data NSet a = FSet | NSet { nset :: S.Set a }
+    deriving (Eq, Ord, Show)
+
+instance (Ord a) => Lattices (NSet a) where
+    top    = FSet
+    bottom = NSet S.empty
+
+    FSet \/ _ = FSet
+    _    \/ FSet = FSet
+    NSet ls \/ NSet rs = NSet $ ls `S.union` rs
+
+    FSet /\ e = e
+    e /\ FSet = e
+    NSet ls /\  NSet rs = NSet $ ls `S.intersection` rs
+
+-- 正向分析需要从start开始，根据当前节点的前置节点来计算lattices
+worklistForward :: (Lattices a, Eq a) => FlowF a -> CFG (NMap a)
+worklistForward f = do
+    nodes <- reverse . G.dfs' <$> lift ask
+    worklistIter nodes (/\) top pre suc f
+
+-- 反向分析需要从end开始，根据当前节点的后置节点来计算lattices
+worklistBackwark :: (Lattices a, Eq a) => FlowF a -> CFG (NMap a)
+worklistBackwark f = do
+    nodes <- G.dfs' <$> lift ask
+    worklistIter nodes (/\) top suc pre f
+
+worklistIter
+    :: (Lattices a, Eq a)
+    => [G.Node] -- 遍历的集合列表   
+    -> (a -> a -> a) -- 数据流聚合函数
+    -> a -- 初始化格
+    -> (G.Node -> CFG [G.Node]) -- 节点的影响节点
+    -> (G.Node -> CFG [G.Node]) -- 受影响节点
+    -> FlowF a -- 流函数
+    -> CFG (NMap a)
+worklistIter nodes aggreF init from to f = impl nodes $ M.fromList $ fmap
+    (, init)
+    nodes
+  where
+    totaleffect node res =
+        foldl' (\p b -> f b (res M.! b) `aggreF` p) init <$> from node
+    impl []       res = pure res
+    impl (b : bs) res = do
+        total <- totaleffect b res
+        if total == res M.! b
+            then impl bs res
+            else do
+                ns <- to b
+                impl (nub $ ns ++ bs) (M.insert b total res)
+
+liveOutF :: (NMap (NSet Expr), NMap (NSet Expr)) -> FlowF (NSet Expr)
+liveOutF (genMap, prsvMap) = \node liveOut ->
+    let gen  = getEs genMap node
+        prsv = getEs prsvMap node
+    in  gen \/ (liveOut /\ prsv)
+    where getEs lvset node = fromMaybe bottom $ M.lookup node lvset
+
+varSet :: CFG (NMap (NSet Expr), NMap (NSet Expr))
 varSet =
     foldl'
-            (\(uv, vk) (node, ir) ->
-                let lvs   = lvalues ir
-                    aslvs = assignLvs ir
-                    uvset = S.difference lvs aslvs
-                in  (M.insert node uvset uv, M.insert node aslvs vk)
+            (\(gv, pv) (node, ir) ->
+                ( M.insert node (NSet $ genLvs ir) gv
+                , M.insert node (NSet $ prsv ir) pv
+                )
             )
             (M.empty, M.empty)
         <$> toBlocks
 
-liveOut :: CFG LVSet
+liveOut :: CFG (NMap (NSet Expr))
 liveOut = do
-    (uv, vk) <- varSet
-    linit <- liveOutInit
-    undefined
-    where 
-        liveOutInit = do 
-            nodes <- G.nodes <$> lift ask
-            pure $ M.fromList $ fmap (, S.empty) nodes
+    vs <- varSet
+    worklistForward $ liveOutF vs
 
 genFlowChart :: V.Vector IR -> G.Gr FCNode ()
 genFlowChart blocks = G.run_ G.empty $ do

@@ -13,6 +13,7 @@ tests:
 copyright: 2018 Author name here
 maintainer: example@example.com
 dependencies:
+- base
 - vector
 - base >= 4.7 && < 5
 - bytestring
