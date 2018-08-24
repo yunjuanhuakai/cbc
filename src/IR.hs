@@ -76,6 +76,7 @@ genLvs ir = S.fromList $ fst <$> filter ((== 1) . snd) (count $ killLvs ir)
 data Expr = Uni Op Type Expr
           | Bin Op Type Expr Expr
           | Call Expr [Expr]
+          | Phi Expr Expr -- 这里的Expr只可能为Var，同时该Expr仅出现于SSA形式中，不想换IR了
           | Addr Expr
           | Mem Expr
           | Var String Int

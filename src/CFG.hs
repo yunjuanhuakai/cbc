@@ -25,6 +25,34 @@ import           Control.Monad                  ( guard
                                                 )
 import           Control.Applicative
 
+domFront :: NMap (S.Set G.Node) -> [G.Node] -> CFG (NMap (S.Set G.Node))
+domFront idom nodes = foldM
+    (\df x -> do
+        let idoms = idom M.! x
+        local <- S.filter (`notElem` idoms) . S.fromList <$> suc x -- 当前必经节点后继节点的必经节点不是这个节点的
+        let
+            dfs = foldl'
+                (\b z -> b `S.union` fromMaybe S.empty (df M.!? z))
+                S.empty
+                idoms
+        let ups = S.filter (`notElem` idoms) dfs
+        pure $ M.insert x (local `S.union` ups) df
+    )
+    M.empty
+    (reverse $ M.keys idom)
+
+-- DF(S) = \/DF(x)
+-- DF+(S) = lim DF^i(S) -> DF^1(S) = DF(S) and DF^i(S) = DF(S \/ DF^i(S))
+dfPlus :: NMap (S.Set G.Node) -> S.Set G.Node -> S.Set G.Node
+dfPlus df s = impl $ dfSet df s
+  where
+    impl dfp =
+        let ndfp = dfSet df $ s `S.union` dfp
+        in  if dfp == ndfp then dfp else impl ndfp
+
+dfSet :: NMap (S.Set G.Node) -> S.Set G.Node -> S.Set G.Node
+dfSet df = foldl' (\r a -> r `S.union` fromMaybe S.empty (df M.!? a)) S.empty
+
 toBlock :: IR -> V.Vector IR
 toBlock ir = foldr impl V.empty zipIR
   where
@@ -109,24 +137,24 @@ worklistIter
     => [G.Node] -- 遍历的集合列表   
     -> (a -> a -> a) -- 数据流聚合函数
     -> a -- 初始化格
-    -> (G.Node -> CFG [G.Node]) -- 节点的影响节点
-    -> (G.Node -> CFG [G.Node]) -- 受影响节点
+    -> (G.Node -> CFG [G.Node]) -- 流入节点
+    -> (G.Node -> CFG [G.Node]) -- 流出节点
     -> FlowF a -- 流函数
     -> CFG (NMap a)
-worklistIter nodes aggreF init from to f = impl nodes $ M.fromList $ fmap
+worklistIter nodes aggreF init in' out f = impl nodes $ M.fromList $ fmap
     (, init)
     nodes
   where
     totaleffect node res =
-        foldl' (\p b -> f b (res M.! b) `aggreF` p) init <$> from node
+        foldl' (\p b -> f b (res M.! b) `aggreF` p) init <$> in' node
     impl []       res = pure res
     impl (b : bs) res = do
         total <- totaleffect b res
         if total == res M.! b
             then impl bs res
             else do
-                ns <- to b
-                impl (nub $ ns ++ bs) (M.insert b total res)
+                ns <- out b
+                impl (bs ++ filter (`notElem` bs) ns) (M.insert b total res)
 
 liveOutF :: (NMap (NSet Expr), NMap (NSet Expr)) -> FlowF (NSet Expr)
 liveOutF (genMap, prsvMap) = \node liveOut ->
