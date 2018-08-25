@@ -1,9 +1,10 @@
 {-# LANGUAGE OverloadedLists, MultiWayIf, TupleSections #-}
 
 -- 控制流是这样的
-module CFG where
+module Analysis where
 
 import           IR
+import           Helper
 import qualified Data.Map.Strict               as M
 import qualified Data.Set                      as S
 import qualified Data.Vector                   as V
@@ -24,8 +25,30 @@ import           Control.Monad                  ( guard
                                                 , forM
                                                 )
 import           Control.Applicative
+import           GHC.Generics                   ( Generic )
 
-domFront :: NMap (S.Set G.Node) -> [G.Node] -> CFG (NMap (S.Set G.Node))
+-- 将AState中的cfg转换成ssa形式
+ssa :: Analysis ()
+ssa = do
+    genBolcks <- genBlocks
+    undefined
+
+genBlocks :: Analysis (M.Map Expr (S.Set G.Node))
+genBlocks = do
+    genMap <- genMap <$> get
+    pure $ foldl'
+        (\res node -> foldl'
+            (\res' expr -> case M.lookup expr res of
+                Just s  -> M.insert expr (S.insert node s) res'
+                Nothing -> M.insert expr (S.singleton node) res'
+            )
+            res
+            (nset $ genMap M.! node)
+        )
+        M.empty
+        (M.keys genMap)
+
+domFront :: NMap (S.Set G.Node) -> [G.Node] -> Analysis (NMap (S.Set G.Node))
 domFront idom nodes = foldM
     (\df x -> do
         let idoms = idom M.! x
@@ -81,9 +104,9 @@ isBlock :: FCNode -> Bool
 isBlock (FCBlock _) = True
 isBlock _           = False
 
-toBlocks :: CFG [(G.Node, IR)]
+toBlocks :: Analysis [(G.Node, IR)]
 toBlocks = do
-    nodes <- G.labNodes <$> lift ask
+    nodes <- G.labNodes . cfg <$> get
     pure $ G.mapSnd block <$> filter (isBlock . snd) nodes
 
 assignInBlock :: Expr -> FCNode -> Bool
@@ -121,15 +144,15 @@ instance (Ord a) => Lattices (NSet a) where
     NSet ls /\  NSet rs = NSet $ ls `S.intersection` rs
 
 -- 正向分析需要从start开始，根据当前节点的前置节点来计算lattices
-worklistForward :: (Lattices a, Eq a) => FlowF a -> CFG (NMap a)
+worklistForward :: (Lattices a, Eq a) => FlowF a -> Analysis (NMap a)
 worklistForward f = do
-    nodes <- reverse . G.dfs' <$> lift ask
+    nodes <- reverse . G.dfs' . cfg <$> get
     worklistIter nodes (/\) top pre suc f
 
 -- 反向分析需要从end开始，根据当前节点的后置节点来计算lattices
-worklistBackwark :: (Lattices a, Eq a) => FlowF a -> CFG (NMap a)
+worklistBackwark :: (Lattices a, Eq a) => FlowF a -> Analysis (NMap a)
 worklistBackwark f = do
-    nodes <- G.dfs' <$> lift ask
+    nodes <- G.dfs' . cfg <$> get
     worklistIter nodes (/\) top suc pre f
 
 worklistIter
@@ -137,10 +160,10 @@ worklistIter
     => [G.Node] -- 遍历的集合列表   
     -> (a -> a -> a) -- 数据流聚合函数
     -> a -- 初始化格
-    -> (G.Node -> CFG [G.Node]) -- 流入节点
-    -> (G.Node -> CFG [G.Node]) -- 流出节点
+    -> (G.Node -> Analysis [G.Node]) -- 流入节点
+    -> (G.Node -> Analysis [G.Node]) -- 流出节点
     -> FlowF a -- 流函数
-    -> CFG (NMap a)
+    -> Analysis (NMap a)
 worklistIter nodes aggreF init in' out f = impl nodes $ M.fromList $ fmap
     (, init)
     nodes
@@ -163,21 +186,24 @@ liveOutF (genMap, prsvMap) = \node liveOut ->
     in  gen \/ (liveOut /\ prsv)
     where getEs lvset node = fromMaybe bottom $ M.lookup node lvset
 
-varSet :: CFG (NMap (NSet Expr), NMap (NSet Expr))
-varSet =
-    foldl'
-            (\(gv, pv) (node, ir) ->
-                ( M.insert node (NSet $ genLvs ir) gv
-                , M.insert node (NSet $ prsv ir) pv
+varSet :: Analysis ()
+varSet = do
+    ast               <- get
+    (genMap, prsvMap) <-
+        foldl'
+                (\(gv, pv) (node, ir) ->
+                    ( M.insert node (NSet $ genLvs ir) gv
+                    , M.insert node (NSet $ prsv ir) pv
+                    )
                 )
-            )
-            (M.empty, M.empty)
-        <$> toBlocks
+                (M.empty, M.empty)
+            <$> toBlocks
+    put $ ast { genMap = genMap, prsvMap = prsvMap }
 
-liveOut :: CFG (NMap (NSet Expr))
+liveOut :: Analysis (NMap (NSet Expr))
 liveOut = do
-    vs <- varSet
-    worklistForward $ liveOutF vs
+    ast <- get
+    worklistForward $ liveOutF (genMap ast, prsvMap ast)
 
 genFlowChart :: V.Vector IR -> G.Gr FCNode ()
 genFlowChart blocks = G.run_ G.empty $ do
@@ -207,20 +233,29 @@ genFlowChart blocks = G.run_ G.empty $ do
                           )
     findBlock label = FCBlock $ fromJust $ V.find ((label ==) . V.head) blocks
 
-type CFG = MaybeT (Reader (G.Gr FCNode ()))
+data AState = AState
+    {
+      cfg :: G.Gr FCNode ()
+    , idom :: NMap G.Node
+    , genMap :: NMap (NSet Expr)
+    , prsvMap :: NMap (NSet Expr)
+    }
+    deriving (Show, Eq)
 
-suc :: G.Node -> CFG [G.Node]
-suc node = G.suc <$> lift ask <*> pure node
+type Analysis = StateT AState (MaybeT Cb)
 
-pre :: G.Node -> CFG [G.Node]
-pre node = G.pre <$> lift ask <*> pure node
+suc :: G.Node -> Analysis [G.Node]
+suc node = G.suc . cfg <$> get <*> pure node
 
-backEdge :: CFG [(G.Node, G.Node)]
+pre :: G.Node -> Analysis [G.Node]
+pre node = G.pre . cfg <$> get <*> pure node
+
+backEdge :: Analysis [(G.Node, G.Node)]
 backEdge = do
-    g <- lift ask
+    g <- cfg <$> get
     pure $ filter (G.hasEdge g) (G.iDom g 1)
 
-natLoop :: (G.Node, G.Node) -> CFG [G.Node]
+natLoop :: (G.Node, G.Node) -> Analysis [G.Node]
 natLoop (m, n) = impl m [n]
   where
     impl p loop
@@ -235,5 +270,3 @@ natLoop (m, n) = impl m [n]
                 loop
                 ns
             pure (p : r)
-
-
