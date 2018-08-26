@@ -263,16 +263,32 @@ isStatement :: Cb Bool
 isStatement = fmap (\ist -> level ist == 1) get
 
 transformBin :: Expr -> A.Type -> String -> Expr -> A.Type -> Cb Expr
-transformBin le lt op re rt = if 
-  | A.isPtr lt && A.isPtr rt && op == "-" -> 
-    pure $ Bin DIV UI64 (Bin SUB UI64 le re) (I $ A.sizeof lt)
-  | A.isPtr lt -> 
-    pure $ Bin (transformOp op) UI64 le (Bin MUL UI64 re $ I (A.sizeof lt))
-  | A.isPtr rt -> 
-    pure $ Bin (transformOp op) UI64 (Bin MUL UI64 le $ I (A.sizeof rt)) re
-  | otherwise -> do
-    t <- pormotTwo lt rt
-    pure $ Bin (transformOp op) (transformType t) le re
+transformBin le lt op re rt = do
+  lve <- toLv le lt
+  rve <- toLv re rt
+  if | A.isPtr lt && A.isPtr rt && op == "-" -> do
+        v <- tmpVar A.CbULong >>= transformExpr'
+        assign v (Bin SUB UI64 lve rve)
+        pure $ Bin DIV UI64 v (I $ A.sizeof lt)
+      | A.isPtr lt -> do
+        v <- tmpVar A.CbULong >>= transformExpr'
+        assign v (Bin MUL UI64 rve $ I (A.sizeof lt))
+        pure $ Bin (transformOp op) UI64 lve v
+      | A.isPtr rt -> do
+        v <- tmpVar A.CbULong >>= transformExpr'
+        assign v (Bin MUL UI64 lve $ I (A.sizeof rt))
+        pure $ Bin (transformOp op) UI64 v rve
+      | otherwise -> do
+        t <- pormotTwo lt rt
+        pure $ Bin (transformOp op) (transformType t) lve rve
+
+toLv :: Expr -> A.Type -> Cb Expr
+toLv e@Var{} _ = pure e
+toLv e@Mem{} _ = pure e
+toLv e t = do
+  tmp <- tmpVar t >>= transformExpr'
+  assign tmp e
+  pure tmp
 
 transformOpAssign :: A.Expr -> String -> A.Expr -> Cb Expr
 transformOpAssign lae op rae = do
@@ -302,7 +318,8 @@ transformExpr (  A.Binary _ op le re ) = do
   rre <- transformExpr' re
   transformBin lre lt op rre rt
 transformExpr e@(A.Member _ name expr) = do
-  ptr <- Addr <$> transformExpr' expr
+  v   <- toLv <$> transformExpr' expr
+  ptr <- tmpVar A.CbULong >>= transformExpr'
   Mem <$> (Bin ADD UI64 ptr <$> fmap I (offset' e))
 transformExpr e@(A.PtrMember _ name expr) =
   Mem <$> (Bin ADD UI64 <$> transformExpr' expr <*> fmap I (offset' e))

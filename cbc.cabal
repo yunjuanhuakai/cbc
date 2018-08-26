@@ -1,10 +1,10 @@
 cabal-version: >= 1.10
 
--- This file has been generated from package.yaml by hpack version 0.29.6.
+-- This file has been generated from package.yaml by hpack version 0.29.7.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: e6cbcbffeec931b16984bd240dc0bbab1ac954a8b554182b6947293d7aba1721
+-- hash: da869a01f8b685037ed27bc4810f76a37bd2b970a9080d6bdfec3ab35e1c80bd
 
 name:           cbc
 version:        0.1.0.0
@@ -43,8 +43,8 @@ library
     , transformers
     , vector
   exposed-modules:
+      Analysis
       Ast
-      CFG
       FileUtils
       Helper
       IR

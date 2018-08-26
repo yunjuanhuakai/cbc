@@ -44,7 +44,25 @@ data Stmt = Assign Expr Expr
           | Label String
           | Expression Expr
           | Return (Maybe Expr)
-          deriving (Show, Eq, Ord, Generic)
+          deriving (Eq, Ord, Generic)
+
+stmtToString :: Stmt -> String
+stmtToString (Assign l r) = show l ++ " <- " ++ show r
+stmtToString (CJump c l1 l2) = "if ("
+                ++ show c
+                ++ ") then "
+                ++ stmtToString l1
+                ++ " else "
+                ++ stmtToString l2
+stmtToString (Jump       l       ) = "goto " ++ stmtToString l
+stmtToString (Label      name    ) = name
+stmtToString (Expression e       ) = show e
+stmtToString (Return     (Just e)) = "ret " ++ show e
+stmtToString (Return     Nothing ) = "ret"
+
+instance Show Stmt where
+  show s@Label{} = stmtToString s ++ ":"
+  show s = "\t" ++ stmtToString s
 
 isAssign :: Stmt -> Bool
 isAssign Assign{} = True
@@ -57,10 +75,9 @@ assignLv _             = Nothing
 count :: (Eq a, Foldable t) => t a -> [(a, Int)]
 count = foldr impl []
     where
-        impl a [] = [(a,1)]
-        impl a (x:xs)
-          | fst x == a = (a,snd x + 1) : impl a xs
-          | otherwise = impl a xs
+        impl a [] = [(a, 1)]
+        impl a (x : xs) | fst x == a = (a, snd x + 1) : impl a xs
+                        | otherwise  = impl a xs
 
 killLvs :: IR -> [Expr]
 killLvs ir =

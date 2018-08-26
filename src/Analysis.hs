@@ -30,8 +30,27 @@ import           GHC.Generics                   ( Generic )
 -- 将AState中的cfg转换成ssa形式
 ssa :: Analysis ()
 ssa = do
-    genBolcks <- genBlocks
+    gens  <- M.filter ((> 1) . S.size) <$> genBlocks
+    idoms <- idoms
+    df    <- domFront idoms
+    let inPhis = M.foldlWithKey'
+            (\res expr gens -> M.insert expr (dfPlus df gens) res)
+            M.empty
+            gens
+    
     undefined
+
+-- iDom为直接支配节点树，idoms为给定节点作为支配节点的map
+idoms :: Analysis (NMap (S.Set G.Node))
+idoms = do
+    iDom <- iDom <$> get
+    pure $ foldl' (\res node -> M.insert node (iter node iDom) res)
+                  M.empty
+                  (M.keys iDom)
+  where
+    iter node iDom = case M.lookup node iDom of
+        Just n  -> S.insert n $ iter n iDom
+        Nothing -> S.empty
 
 genBlocks :: Analysis (M.Map Expr (S.Set G.Node))
 genBlocks = do
@@ -48,8 +67,8 @@ genBlocks = do
         M.empty
         (M.keys genMap)
 
-domFront :: NMap (S.Set G.Node) -> [G.Node] -> Analysis (NMap (S.Set G.Node))
-domFront idom nodes = foldM
+domFront :: NMap (S.Set G.Node) -> Analysis (NMap (S.Set G.Node))
+domFront idom = foldM
     (\df x -> do
         let idoms = idom M.! x
         local <- S.filter (`notElem` idoms) . S.fromList <$> suc x -- 当前必经节点后继节点的必经节点不是这个节点的
@@ -236,7 +255,7 @@ genFlowChart blocks = G.run_ G.empty $ do
 data AState = AState
     {
       cfg :: G.Gr FCNode ()
-    , idom :: NMap G.Node
+    , iDom :: NMap G.Node
     , genMap :: NMap (NSet Expr)
     , prsvMap :: NMap (NSet Expr)
     }
