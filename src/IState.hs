@@ -18,11 +18,6 @@ data Scope = Scope
 data Flag = Checking | Checked
   deriving (Eq, Show, Generic)
 
-data DeclHandler = DeclHandler
-  { handlerType :: A.Type
-  }
-  deriving (Eq, Show, Ord, Generic)
-
 data IState = IState
   {
 -- ast
@@ -30,14 +25,15 @@ data IState = IState
   , scope            :: Scope
   , projectDriectory :: FilePath
   , declCount        :: Int
-  , handlers         :: Map.Map Int DeclHandler -- 所谓的符号表
+  , handlers         :: Map.Map Int A.Declaration -- 所谓的符号表
 -- check
   , rcursive         :: Map.Map A.Type Flag
   , exprTypes        :: Map.Map A.Expr A.Type
 -- gen ir
-  , level            :: Integer
-  , labelCount       :: Integer
-  , ir               :: V.Vector R.Stmt
+  , level            :: Int
+  , labelCount       :: Int
+  , curIR            :: Int
+  , ir               :: Map.Map Int R.IR
   , breakStack       :: [R.Stmt]
   , continueStack    :: [R.Stmt]
   }
@@ -53,6 +49,7 @@ cbInit = IState typeInit
                 exprTypesInit
                 levelInit
                 labelCountInit
+                curIRInit
                 irInit
                 brackStackInit
                 continueStackInit
@@ -66,7 +63,8 @@ cbInit = IState typeInit
   rcursiveInit      = Map.empty
   exprTypesInit     = Map.empty
   labelCountInit    = 0
-  irInit            = []
+  curIRInit         = 0
+  irInit            = Map.empty
   brackStackInit    = []
   continueStackInit = []
 

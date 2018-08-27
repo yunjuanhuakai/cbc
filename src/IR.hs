@@ -6,11 +6,26 @@ import qualified Ast                           as A
 import qualified Data.Vector                   as V
 import qualified Data.Set                      as S
 import           Data.Maybe
+import           Data.List
 import           Data.Monoid
 import           GHC.Generics                   ( Generic )
 import           Text.PrettyPrint.GenericPretty ( Out )
 
-type IR = V.Vector Stmt
+type Stmts = V.Vector Stmt
+
+data IR = IR
+        {
+          irName :: String
+        , retType :: Type
+        , params :: [Expr]
+        , stmts :: V.Vector Stmt
+        } 
+        deriving (Eq, Ord)
+
+instance Show IR where
+  show (IR name rt params stmts) = "fun " ++  name ++ "(" ++ paramsStr ++  "): " ++ show rt ++ " {\n" ++ stmtsStr ++ "}"
+    where paramsStr = intercalate ", " $ fmap show params
+          stmtsStr = intercalate "\n" $ fmap show $ V.toList stmts
 
 data Type = I8
           | I16
@@ -37,6 +52,7 @@ transformType A.CbDouble    = F64
 transformType A.CbChar      = I8
 transformType A.CbUChar     = UI8
 transformType A.CbBool      = I8
+transformType A.CbVoid      = I8
 
 data Stmt = Assign Expr Expr
           | CJump Expr Stmt Stmt
@@ -48,9 +64,7 @@ data Stmt = Assign Expr Expr
 
 stmtToString :: Stmt -> String
 stmtToString (Assign l r) = show l ++ " <- " ++ show r
-stmtToString (CJump c l1 l2) = "if ("
-                ++ show c
-                ++ ") then "
+stmtToString (CJump c l1 l2) = "if (" ++ show c ++ ") then "
                 ++ stmtToString l1
                 ++ " else "
                 ++ stmtToString l2
@@ -81,7 +95,7 @@ count = foldr impl []
 
 killLvs :: IR -> [Expr]
 killLvs ir =
-        let assigns = fromJust <$> V.filter isJust (assignLv <$> ir)
+        let assigns = fromJust <$> V.filter isJust (assignLv <$> stmts ir)
         in  V.toList assigns
 
 prsv :: IR -> S.Set Expr
@@ -96,7 +110,8 @@ data Expr = Uni Op Type Expr
           | Phi Expr Expr -- 这里的Expr只可能为Var，同时该Expr仅出现于SSA形式中，不想换IR了
           | Addr Expr
           | Mem Expr
-          | Var String Int
+          | Fun String Int -- 函数，最后一个成员是id
+          | Var String Type
           | Str String
           | I Int
           | F Double
@@ -108,7 +123,7 @@ lvalue Var{} = True
 lvalue _     = False
 
 lvalues :: IR -> S.Set Expr
-lvalues ir = S.unions $ lvaluesByStmt <$> V.toList ir
+lvalues ir = S.unions $ lvaluesByStmt <$> V.toList (stmts ir)
     where
         lvaluesByStmt (Assign lv rv) =
                 lvaluesByExpr lv `S.union` lvaluesByExpr rv

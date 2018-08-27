@@ -33,5 +33,5 @@ maybeToEither Nothing  = fail "类型不匹配"
 pormotTwo :: Type -> Type -> Cb Type
 pormotTwo t1 t2 = maybeToEither $ typeTable !! typeIndex t1 !! typeIndex t2
 
-findHandlerById :: Int -> Cb DeclHandler
+findHandlerById :: Int -> Cb Declaration
 findHandlerById id = fmap (\ist -> handlers ist Map.! id) get

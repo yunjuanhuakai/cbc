@@ -20,6 +20,9 @@ import           Control.Monad.State.Strict     ( StateT(..)
                                                 )
 
 
+transformDecl :: Int -> A.Declaration -> Cb IR
+transformDecl = undefined
+
 -----------------------------------------------------------------------
 
 queryType :: A.Expr -> Cb A.Type
@@ -43,21 +46,20 @@ offset' (A.Member _ name expr) = do
     Nothing -> fail "错误的成员变量偏移量计算"
 offset' _ = fail "无法计算偏移量"
 
-tmpVar :: A.Type -> Cb A.Expr
+tmpVar :: Type -> Cb Expr
 tmpVar t = do
   ist <- get
   let id = declCount ist + 1
-  let handler = DeclHandler t
-  put $ ist 
-    { declCount = id
-    , handlers = Map.insert id handler $ handlers ist
-    }
-  pure $ A.Decl A.NoFC ("#tmp" ++ show id) id
+  pure $ Var ("#tmp" ++ show id) t
 
 addStmt :: Stmt -> Cb ()
 addStmt s = do
   i <- get
-  put $ i { ir = V.snoc (ir i) s }
+  let cur = curIR i
+  let irMap = ir i
+  let ir' = irMap Map.! cur
+  let nIr = ir' { stmts = V.snoc (stmts ir') s }
+  put $ i { ir = Map.insert cur nIr irMap}
 
 cjump :: Expr -> Stmt -> Stmt -> Cb ()
 cjump cond thenLabel elseLabel = addStmt $ CJump cond thenLabel elseLabel
@@ -121,11 +123,6 @@ transformCase cv (A.Case _ expr body) = do
   cjump (Bin EQ_ I8 cv tv) thenLabel lab
   label thenLabel
   transformStmt body
-
-transformStmt' :: A.Stmt -> Cb (V.Vector Stmt)
-transformStmt' s = do
-  transformStmt s
-  fmap ir get
 
 transformStmt :: A.Stmt -> Cb ()
 transformStmt (A.Switch _ cond cases default_) = do
@@ -264,29 +261,29 @@ isStatement = fmap (\ist -> level ist == 1) get
 
 transformBin :: Expr -> A.Type -> String -> Expr -> A.Type -> Cb Expr
 transformBin le lt op re rt = do
-  lve <- toLv le lt
-  rve <- toLv re rt
+  lve <- toLv le $ transformType lt
+  rve <- toLv re $ transformType rt
   if | A.isPtr lt && A.isPtr rt && op == "-" -> do
-        v <- tmpVar A.CbULong >>= transformExpr'
+        v <- tmpVar UI64
         assign v (Bin SUB UI64 lve rve)
         pure $ Bin DIV UI64 v (I $ A.sizeof lt)
       | A.isPtr lt -> do
-        v <- tmpVar A.CbULong >>= transformExpr'
+        v <- tmpVar UI64
         assign v (Bin MUL UI64 rve $ I (A.sizeof lt))
         pure $ Bin (transformOp op) UI64 lve v
       | A.isPtr rt -> do
-        v <- tmpVar A.CbULong >>= transformExpr'
+        v <- tmpVar UI64
         assign v (Bin MUL UI64 lve $ I (A.sizeof rt))
         pure $ Bin (transformOp op) UI64 v rve
       | otherwise -> do
         t <- pormotTwo lt rt
         pure $ Bin (transformOp op) (transformType t) lve rve
 
-toLv :: Expr -> A.Type -> Cb Expr
+toLv :: Expr -> Type -> Cb Expr
 toLv e@Var{} _ = pure e
 toLv e@Mem{} _ = pure e
 toLv e t = do
-  tmp <- tmpVar t >>= transformExpr'
+  tmp <- tmpVar t
   assign tmp e
   pure tmp
 
@@ -298,8 +295,8 @@ transformOpAssign lae op rae = do
   le <- transformExpr' lae
   re <- transformExpr' rae
 
-  a <- tmpVar (A.CbPtr lt) >>= transformExpr'
-  tmp <- tmpVar lt >>= transformExpr'
+  a <- tmpVar UI64
+  tmp <- tmpVar $ transformType lt
   assign a (Addr le)
   assign tmp le
   bin <- transformBin tmp lt op re rt
@@ -319,7 +316,7 @@ transformExpr (  A.Binary _ op le re ) = do
   transformBin lre lt op rre rt
 transformExpr e@(A.Member _ name expr) = do
   v   <- toLv <$> transformExpr' expr
-  ptr <- tmpVar A.CbULong >>= transformExpr'
+  ptr <- tmpVar UI64
   Mem <$> (Bin ADD UI64 ptr <$> fmap I (offset' e))
 transformExpr e@(A.PtrMember _ name expr) =
   Mem <$> (Bin ADD UI64 <$> transformExpr' expr <*> fmap I (offset' e))
@@ -333,7 +330,7 @@ transformExpr (A.Assign _ le re) = do
       -- lhs 在赋值表达式为子表达式的情况下，使用两次可能会导致副作用从而影响语义
       -- 因此引入临时变量，将最终结果记录下来
       -- cont(lhs = rhs) -> tmp = rhs; lhs = tmp; cont(tmp)
-      tmp <- queryType re >>= tmpVar >>= transformExpr'
+      tmp <- queryType re >>= tmpVar . transformType
       assign tmp rhs
       assign lhs tmp
       pure tmp
@@ -349,8 +346,8 @@ transformExpr (A.Suffix _ op expr   ) = do
       -- a 存 expr 的引用，tmp 记录 expr 的结果
       -- cont(expr++) -> a = &expr; tmp = *a; *a = *a + 1; cont(tmp)
       t   <- queryType expr
-      a   <- tmpVar (A.CbPtr t) >>= transformExpr'
-      tmp <- tmpVar t >>= transformExpr'
+      a   <- tmpVar UI64
+      tmp <- tmpVar $ transformType t
       assign a       (Addr e)
       assign tmp     (Mem a)
       assign (Mem a) (Bin ADD UI64 (Mem a) (I 1))
@@ -368,7 +365,7 @@ transformExpr (A.Cond _ cond then_ else_) = do
   elseLabel <- labelGen "condElse"
   endLabel  <- labelGen "condEnd"
 
-  tmp       <- queryType then_ >>= tmpVar >>= transformExpr'
+  tmp       <- queryType then_ >>= tmpVar . transformType
   e <- transformExpr' cond 
   cjump e thenLabel elseLabel
   label thenLabel
@@ -385,10 +382,12 @@ transformExpr (A.Arrayref _ e ie   ) = do
   index <- transformExpr' ie
 
   t     <- A.elemType <$> queryType e
-  tmp   <- tmpVar (A.CbPtr t) >>= transformExpr'
+  tmp   <- tmpVar UI64
   assign tmp $ Bin ADD UI64 array index
   pure $ Mem tmp
-transformExpr (A.Decl _ name id) = pure $ Var name id
+transformExpr (A.Decl _ name id) = do
+  ist <- get
+  undefined
 transformExpr (A.Seq _ exprs   ) = last <$> mapM transformExpr' exprs
 transformExpr (A.Funcall _ params fun) =
   Call <$> transformExpr' fun <*> mapM transformExpr' params

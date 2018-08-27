@@ -52,7 +52,8 @@ parser' fname input = do
   u   <- parserUnit fname input >>= TC.unit
   let fs  = fmap (functionBody . fromJust) $ filter isJust $ fmap func (declarations u)
   
-  mapM G.transformStmt' fs
+  -- mapM G.transformStmt' fs
+  undefined
   where func f@Function{} = Just f
         func _ = Nothing
   

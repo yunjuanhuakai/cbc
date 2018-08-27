@@ -339,8 +339,7 @@ declIdGen = do
 declHandlerGen :: Declaration -> CbParser ()
 declHandlerGen decl = do
   ist <- get
-  put $ ist { handlers = Map.insert (declId decl) (declToHandler decl) (handlers ist) }
-  where declToHandler decl = DeclHandler $ declToType decl
+  put $ ist { handlers = Map.insert (declId decl) decl (handlers ist) }
 
 declaration :: CbParser Declaration
 declaration =

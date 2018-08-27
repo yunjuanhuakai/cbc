@@ -95,7 +95,7 @@ dfPlus df s = impl $ dfSet df s
 dfSet :: NMap (S.Set G.Node) -> S.Set G.Node -> S.Set G.Node
 dfSet df = foldl' (\r a -> r `S.union` fromMaybe S.empty (df M.!? a)) S.empty
 
-toBlock :: IR -> V.Vector IR
+toBlock :: Stmts -> V.Vector Stmts
 toBlock ir = foldr impl V.empty zipIR
   where
     zipIR = V.zip ir (V.tail ir)
@@ -131,7 +131,7 @@ toBlocks = do
 assignInBlock :: Expr -> FCNode -> Bool
 assignInBlock le FCEnd        = False
 assignInBlock le FCStart      = False
-assignInBlock le (FCBlock ir) = match ir
+assignInBlock le (FCBlock ir) = match $ stmts ir
   where
     match ir
         | V.null ir = False
@@ -236,7 +236,7 @@ genFlowChart blocks = G.run_ G.empty $ do
           in
               do
                   G.insMapNodeM block'
-                  stmt <- V.lastM block
+                  stmt <- V.lastM $ stmts block
                   case stmt of
                       CJump _ then_ else_ -> do
                           G.insMapEdgeM (block', findBlock then_, ())
@@ -250,7 +250,7 @@ genFlowChart blocks = G.run_ G.empty $ do
                               else FCBlock $ blocks V.! (i + 1)
                           , ()
                           )
-    findBlock label = FCBlock $ fromJust $ V.find ((label ==) . V.head) blocks
+    findBlock label = FCBlock $ fromJust $ V.find ((label ==) . V.head . stmts) blocks
 
 data AState = AState
     {

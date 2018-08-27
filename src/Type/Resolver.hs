@@ -103,12 +103,6 @@ expr' (Dereference fc expr   ) = Dereference fc <$> exprAndCheck expr
 expr' (Member    fc name expr) = Member fc name <$> exprAndCheck expr
 expr' (PtrMember fc name expr) = PtrMember fc name <$> exprAndCheck expr
 expr' (Arrayref fc ve ie) = Arrayref fc <$> exprAndCheck ve <*> exprAndCheck ie
-expr' (Decl      fc name id  ) = do
-  ist <- get
-  h   <- findHandlerById id
-  t   <- type' $ handlerType h
-  put $ ist { handlers = Map.insert id (h { handlerType = t }) $ handlers ist }
-  pure $ Decl fc name id
 expr' e = pure e
 
 type' :: Type -> Cb Type
