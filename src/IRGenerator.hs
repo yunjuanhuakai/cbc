@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE MultiWayIf, NamedFieldPuns #-}
 module IRGenerator where
 
 import qualified Ast                           as A
@@ -19,9 +19,23 @@ import           Control.Monad.State.Strict     ( StateT(..)
                                                 , put
                                                 )
 
+varDecl2Expr :: A.Declaration -> Expr
+varDecl2Expr (A.Variable _ t name id) = Var (name ++ show id) $ transformType t
 
-transformDecl :: Int -> A.Declaration -> Cb IR
-transformDecl = undefined
+transformDecl :: A.Declaration -> Cb ()
+transformDecl (A.Function _ rt name params body id) = do
+  ist <- get
+  let cur  = curIR ist
+  let ist1 = ist { curIR = id }
+  put ist1
+
+  let paramExprs = fmap varDecl2Expr params
+  let rt'        = transformType rt
+  let irInit     = IR name rt' paramExprs V.empty
+  put $ ist1 { ir = Map.insert id irInit $ ir ist1 }
+  transformStmt body
+  ist2 <- get
+  put $ ist2 { curIR = cur }
 
 -----------------------------------------------------------------------
 
@@ -50,6 +64,7 @@ tmpVar :: Type -> Cb Expr
 tmpVar t = do
   ist <- get
   let id = declCount ist + 1
+  put $ ist { declCount = id }
   pure $ Var ("#tmp" ++ show id) t
 
 addStmt :: Stmt -> Cb ()
@@ -210,7 +225,7 @@ transformStmt (A.For _ init cond next body) = do
   mapM_ transformExpr' init
   label begLabel
   if isJust cond
-    then do 
+    then do
       e <- transformExpr' (fromJust cond)
       cjump e bodyLabel endLabel
     else jump bodyLabel
@@ -234,8 +249,12 @@ transformStmt (A.Break    _) = topBrack >>= jump
 transformStmt (A.Continue _) = topContinue >>= jump
 transformStmt (A.Return _ maybeExpr) =
   mapM transformExpr' maybeExpr >>= return_
-transformStmt (A.Expression _ expr) = transformExpr' expr >>= expression
-transformStmt (A.Block _ _ stmts) = forM_ (reverse stmts) transformStmt 
+transformStmt (A.Expression _ expr) = do
+  e <- transformExpr' expr
+  case e of
+    Call{} -> expression e
+    _      -> pure ()
+transformStmt (A.Block _ _ stmts) = forM_ (reverse stmts) transformStmt
 
 transformExpr' :: A.Expr -> Cb Expr
 transformExpr' e = do
@@ -282,7 +301,10 @@ transformBin le lt op re rt = do
 toLv :: Expr -> Type -> Cb Expr
 toLv e@Var{} _ = pure e
 toLv e@Mem{} _ = pure e
-toLv e t = do
+toLv e@I{}   _ = pure e
+toLv e@F{}   _ = pure e
+toLv e@Str{} _ = pure e
+toLv e       t = do
   tmp <- tmpVar t
   assign tmp e
   pure tmp
@@ -366,7 +388,7 @@ transformExpr (A.Cond _ cond then_ else_) = do
   endLabel  <- labelGen "condEnd"
 
   tmp       <- queryType then_ >>= tmpVar . transformType
-  e <- transformExpr' cond 
+  e <- transformExpr' cond
   cjump e thenLabel elseLabel
   label thenLabel
   transformExpr' then_ >>= assign tmp
@@ -387,8 +409,18 @@ transformExpr (A.Arrayref _ e ie   ) = do
   pure $ Mem tmp
 transformExpr (A.Decl _ name id) = do
   ist <- get
-  undefined
-transformExpr (A.Seq _ exprs   ) = last <$> mapM transformExpr' exprs
+  let declMap = handlers ist
+  let irMap   = ir ist
+  case Map.lookup id declMap of
+    Just d@A.Function { A.declName } -> case Map.lookup id irMap of
+      Just _  -> pure $ Fun declName id
+      Nothing -> do
+        transformDecl d
+        pure $ Fun declName id
+    Just d@A.Variable { A.declType, A.declName } ->
+      pure $ Var (declName ++ show id) $ transformType declType
+    _ -> fail "使用了未知的声明"
+transformExpr (A.Seq _ exprs) = last <$> mapM transformExpr' exprs
 transformExpr (A.Funcall _ params fun) =
   Call <$> transformExpr' fun <*> mapM transformExpr' params
 transformExpr (A.IntLiteral    _ i) = pure $ I i

@@ -18,6 +18,8 @@ import           Parser
 import           Control.Monad.Trans.Except     ( runExceptT )
 import           Control.Monad.Trans.State.Strict
                                                 ( runStateT )
+
+import qualified Data.Map.Strict               as Map
 import           Data.Maybe
 import qualified IR
 import qualified IRGenerator as G
@@ -49,14 +51,19 @@ runparser p i inputname s =
 
 parser' :: FilePath -> String -> Cb [IR.IR]
 parser' fname input = do
-  u   <- parserUnit fname input >>= TC.unit
-  let fs  = fmap (functionBody . fromJust) $ filter isJust $ fmap func (declarations u)
-  
-  -- mapM G.transformStmt' fs
-  undefined
-  where func f@Function{} = Just f
-        func _ = Nothing
-  
+  u <- parserUnit fname input >>= TC.unit
+  let fs = fmap fromJust $ filter isJust $ fmap func (declarations u)
+
+  mapM
+    (\decl -> do
+      G.transformDecl decl
+      (Map.! declId decl) . ir <$> get
+    )
+    fs
+ where
+  func f@Function{} = Just f
+  func _            = Nothing
+
 parseImports :: FilePath -> String -> Cb (Maybe Mark, [Declaration])
 parseImports fname input = do
   i <- get

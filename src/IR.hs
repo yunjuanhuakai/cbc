@@ -40,19 +40,22 @@ data Type = I8
           deriving (Show, Eq, Ord, Generic)
 
 transformType :: A.Type -> Type
-transformType (A.CbConst t) = transformType t
-transformType A.CbPtr{}     = UI64
-transformType A.CbArray{}   = UI64
-transformType A.CbLong      = I64
-transformType A.CbULong     = UI64
-transformType A.CbInt       = I32
-transformType A.CbUInt      = UI32
-transformType A.CbFloat     = F32
-transformType A.CbDouble    = F64
-transformType A.CbChar      = I8
-transformType A.CbUChar     = UI8
-transformType A.CbBool      = I8
-transformType A.CbVoid      = I8
+transformType (A.CbConst t)  = transformType t
+transformType A.CbPtr{}      = UI64
+transformType A.CbArray{}    = UI64
+transformType A.CbFunction{} = UI64
+transformType A.CbUnion{}    = UI64
+transformType A.CbStruct{}   = UI64
+transformType A.CbLong       = I64
+transformType A.CbULong      = UI64
+transformType A.CbInt        = I32
+transformType A.CbUInt       = UI32
+transformType A.CbFloat      = F32
+transformType A.CbDouble     = F64
+transformType A.CbChar       = I8
+transformType A.CbUChar      = UI8
+transformType A.CbBool       = I8
+transformType A.CbVoid       = I8
 
 data Stmt = Assign Expr Expr
           | CJump Expr Stmt Stmt
@@ -115,7 +118,20 @@ data Expr = Uni Op Type Expr
           | Str String
           | I Int
           | F Double
-          deriving (Show, Eq, Ord, Generic)
+          deriving (Eq, Ord, Generic)
+
+instance Show Expr where
+  show (Uni op t e) = show op ++ " " ++ show e
+  show (Bin op t l r) = show l ++ " " ++ show op ++ " " ++ show r
+  show (Call fun params) = show fun ++ "(" ++ intercalate ", " (fmap show params) ++ ")"
+  show (Phi l r) = "∅(" ++ show l ++ ", " ++ show r ++ ")"
+  show (Addr e)  = "&(" ++ show e ++ ")"
+  show (Mem e) = "*(" ++ show e ++ ")"
+  show (Fun name id) = name
+  show (Var name t) = name ++ ": " ++ show t
+  show (Str s) = "\"" ++ s ++ "\""
+  show (I i) = show i
+  show (F f) = show f
 
 lvalue :: Expr -> Bool
 lvalue Mem{} = True

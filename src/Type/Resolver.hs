@@ -26,13 +26,8 @@ slot :: Slot -> Cb Slot
 slot (Slot t name) = Slot <$> type' t <*> pure name
 
 decl :: Declaration -> Cb Declaration
-decl (Variable fc t name init id) =
-  Variable fc
-    <$> type' t
-    <*> pure name
-    <*> mapM exprAndCheck init
-    <*> pure id
-    >>= checkVar
+decl (Variable fc t name id) =
+  Variable fc <$> type' t <*> pure name <*> pure id
 decl (Function fc rt name params body id) =
   Function fc
     <$> type' rt

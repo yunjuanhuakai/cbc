@@ -29,14 +29,6 @@ checkCase e = do
   t <- fmap (\s -> exprTypes s Map.! e) get
   if pormot t CbULong then pure e else fail "作为 case 语句的匹配值不符合为整数的限制"
 
-
-checkVar :: Declaration -> Cb Declaration
-checkVar d@(Variable fc t name init _) = if isJust init
-  then do
-    vt <- fmap (\s -> exprTypes s Map.! fromJust init) get
-    if pormot vt t then pure d else fail "初始化语句与变量类型不符"
-  else pure d
-
 checkReturn :: Type -> [Stmt] -> Cb ()
 checkReturn CbVoid []                  = pure ()
 checkReturn t      []                  = fail "没有找到必要的返回值类型"

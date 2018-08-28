@@ -363,19 +363,13 @@ declarationByImport =
       pure decl
 
 defvarNoParam :: CbParser Declaration
-defvarNoParam = defvar <* lchar ';'
+defvarNoParam = defvarSig <* lchar ';'
 
-defvar :: CbParser Declaration
-defvar =
-  Variable
-    <$> getFC
-    <*> type_
-    <*> identifier
-    <*> P.optional (lchar '=' *> expr)
-    <*> declIdGen
-    >>= \decl -> do 
-      declHandlerGen decl
-      pure decl
+defvarSig :: CbParser Declaration
+defvarSig = do
+  var <- Variable <$> getFC <*> type_ <*> identifier <*> declIdGen
+  declHandlerGen var
+  pure var
 
 declfun :: CbParser Declaration
 declfun =
@@ -385,7 +379,7 @@ declfun =
     <*> identifier
     <* lchar '(' <*> params <* lchar ')'
     <*> declIdGen
-  where params = P.sepEndBy defvar $ lchar ','
+  where params = P.sepEndBy defvarSig $ lchar ','
 
 declfun' :: CbParser Declaration
 declfun' = declfun <* lchar ';'

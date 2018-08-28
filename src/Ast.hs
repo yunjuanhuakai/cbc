@@ -52,7 +52,6 @@ data Declaration
     { declFC :: FC
     , declType :: Type
     , declName :: String
-    , declInit :: Maybe Expr
     , declId :: Int
     }
   | Function
@@ -91,7 +90,7 @@ data Declaration
   deriving (Eq, Show, Generic)
 
 declToType :: Declaration -> Type
-declToType (Variable _ t _ _ _       ) = t
+declToType (Variable _ t _ _         ) = t
 declToType (Function _ t _ params _ _) = CbFunction t $ map declToType params
 declToType (UndefineFunction _ t _ params _) =
   CbFunction t $ map declToType params
@@ -234,6 +233,7 @@ typeTable =
 
 -- 本函数的用处：当第一个等于或可提升为第二个类型时返回True
 pormot :: Type -> Type -> Bool
+pormot (CbPtr t2) (CbPtr t1) = t1 == t2
 pormot CbInt CbChar = True  -- 神奇的c语言标准：唯一一个可以向下隐式转换的类型
 pormot source target =
   case typeTable !! typeIndex source !! typeIndex target of
