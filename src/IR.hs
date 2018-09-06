@@ -23,7 +23,7 @@ data IR = IR
         deriving (Eq, Ord)
 
 instance Show IR where
-  show (IR name rt params stmts) = "fun " ++  name ++ "(" ++ paramsStr ++  "): " ++ show rt ++ " {\n" ++ stmtsStr ++ "}"
+  show (IR name rt params stmts) = "fun " ++  name ++ "(" ++ paramsStr ++  "): " ++ show rt ++ " {\n" ++ stmtsStr ++ "\n}"
     where paramsStr = intercalate ", " $ fmap show params
           stmtsStr = intercalate "\n" $ fmap show $ V.toList stmts
 
@@ -37,15 +37,17 @@ data Type = I8
           | UI64
           | F32
           | F64
+          | Ptr
+          | Struct Int
           deriving (Show, Eq, Ord, Generic)
 
 transformType :: A.Type -> Type
 transformType (A.CbConst t)  = transformType t
-transformType A.CbPtr{}      = UI64
-transformType A.CbArray{}    = UI64
-transformType A.CbFunction{} = UI64
-transformType A.CbUnion{}    = UI64
-transformType A.CbStruct{}   = UI64
+transformType A.CbPtr{}      = Ptr
+transformType A.CbArray{}    = Ptr
+transformType A.CbFunction{} = Ptr
+transformType u@A.CbUnion{}  = Struct $ A.sizeof u
+transformType s@A.CbStruct{} = Struct $ A.sizeof s
 transformType A.CbLong       = I64
 transformType A.CbULong      = UI64
 transformType A.CbInt        = I32
@@ -107,8 +109,8 @@ prsv ir = lvalues ir `S.difference` S.fromList (killLvs ir)
 genLvs :: IR -> S.Set Expr
 genLvs ir = S.fromList $ fst <$> filter ((== 1) . snd) (count $ killLvs ir)
 
-data Expr = Uni Op Type Expr
-          | Bin Op Type Expr Expr
+data Expr = Uni String Type Expr
+          | Bin String Type Expr Expr
           | Call Expr [Expr]
           | Phi Expr Expr -- 这里的Expr只可能为Var，同时该Expr仅出现于SSA形式中，不想换IR了
           | Addr Expr
@@ -121,8 +123,8 @@ data Expr = Uni Op Type Expr
           deriving (Eq, Ord, Generic)
 
 instance Show Expr where
-  show (Uni op t e) = show op ++ " " ++ show e
-  show (Bin op t l r) = show l ++ " " ++ show op ++ " " ++ show r
+  show (Uni op t e) = op ++ " " ++ show e
+  show (Bin op t l r) = show l ++ " " ++ op ++ " " ++ show r
   show (Call fun params) = show fun ++ "(" ++ intercalate ", " (fmap show params) ++ ")"
   show (Phi l r) = "∅(" ++ show l ++ ", " ++ show r ++ ")"
   show (Addr e)  = "&(" ++ show e ++ ")"
@@ -158,54 +160,6 @@ lvalues ir = S.unions $ lvaluesByStmt <$> V.toList (stmts ir)
         lvaluesByExpr e@Var{}     = S.insert e S.empty
         lvaluesByExpr _           = S.empty
 
-data Op = ADD
-        | SUB
-        | MUL
-        | DIV
-        | MOD
-        | BIT_NO
-        | BIT_AND
-        | BIT_OR
-        | BIT_XOR
-        | BIT_LSHLFT
-        | BIT_RSHLFT
-        | EQ_
-        | NEQ_
-        | GT_
-        | GTEQ
-        | LT_
-        | LTEQ
-        | UMINUS
-        | NOT
-        | AND
-        | OR
-        | CAST
-        deriving (Show, Eq, Ord, Generic)
-
-transformOp :: String -> Op
-transformOp "+"   = ADD
-transformOp "-"   = SUB
-transformOp "*"   = MUL
-transformOp "/"   = DIV
-transformOp "%"   = MOD
-transformOp "~"   = BIT_NO
-transformOp "&"   = BIT_AND
-transformOp "|"   = BIT_OR
-transformOp "^"   = BIT_XOR
-transformOp "<<"  = BIT_LSHLFT
-transformOp ">>"  = BIT_RSHLFT
-transformOp "=="  = EQ_
-transformOp "!="  = NEQ_
-transformOp ">"   = GT_
-transformOp ">="  = GTEQ
-transformOp "<"   = LT_
-transformOp "<="  = LTEQ
-transformOp "!"   = NOT
-transformOp "and" = AND
-transformOp "or"  = OR
-
-
 instance Out Stmt
 instance Out Expr
-instance Out Op
 instance Out Type

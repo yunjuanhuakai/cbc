@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedLists, MultiWayIf, TupleSections #-}
 
--- 控制流是这样的
-module Analysis where
+module Analysis.Base where
 
 import           IR
 import           Helper
@@ -28,6 +27,7 @@ import           Control.Applicative
 import           GHC.Generics                   ( Generic )
 
 -- 将AState中的cfg转换成ssa形式
+-- TODO 对于赋值左侧的指针操作暂时不知道怎么处理，先往下走走看，实在不行把对指针操作当一个整体
 ssa :: Analysis ()
 ssa = do
     gens  <- M.filter ((> 1) . S.size) <$> genBlocks
@@ -37,8 +37,17 @@ ssa = do
             (\res expr gens -> M.insert expr (dfPlus df gens) res)
             M.empty
             gens
-    
+
     undefined
+  where
+    isLab Label{} = True
+    isLab _  = False
+
+    insertIrHand ir phis
+      | isLab $ V.head ir = V.cons (V.head ir) $ phis V.++ V.tail ir
+      | otherwise = phis V.++ ir
+
+    rename = undefined
 
 -- iDom为直接支配节点树，idoms为给定节点作为支配节点的map
 idoms :: Analysis (NMap (S.Set G.Node))
@@ -114,24 +123,24 @@ toBlock ir = foldr impl V.empty zipIR
                   | isLabel s    = V.snoc v V.empty
                   | otherwise    = pushLast v f
 
-data FCNode = FCBlock { block :: IR }
-            | FCStart
-            | FCEnd
-            deriving (Show, Eq, Ord)
+data FCNode a = FCNode { nodeVal :: a }
+              | FCStart
+              | FCEnd
+              deriving (Show, Eq, Ord)
 
-isBlock :: FCNode -> Bool
-isBlock (FCBlock _) = True
-isBlock _           = False
+isNode :: FCNode a -> Bool
+isNode (FCNode _) = True
+isNode _          = False
 
 toBlocks :: Analysis [(G.Node, IR)]
 toBlocks = do
     nodes <- G.labNodes . cfg <$> get
-    pure $ G.mapSnd block <$> filter (isBlock . snd) nodes
+    pure $ G.mapSnd nodeVal <$> filter (isNode . snd) nodes
 
-assignInBlock :: Expr -> FCNode -> Bool
+assignInBlock :: Expr -> FCNode IR -> Bool
 assignInBlock le FCEnd        = False
 assignInBlock le FCStart      = False
-assignInBlock le (FCBlock ir) = match $ stmts ir
+assignInBlock le (FCNode ir) = match $ stmts ir
   where
     match ir
         | V.null ir = False
@@ -176,7 +185,7 @@ worklistBackwark f = do
 
 worklistIter
     :: (Lattices a, Eq a)
-    => [G.Node] -- 遍历的集合列表   
+    => [G.Node] -- 遍历的集合列表
     -> (a -> a -> a) -- 数据流聚合函数
     -> a -- 初始化格
     -> (G.Node -> Analysis [G.Node]) -- 流入节点
@@ -224,15 +233,15 @@ liveOut = do
     ast <- get
     worklistForward $ liveOutF (genMap ast, prsvMap ast)
 
-genFlowChart :: V.Vector IR -> G.Gr FCNode ()
+genFlowChart :: V.Vector IR -> G.Gr (FCNode IR) ()
 genFlowChart blocks = G.run_ G.empty $ do
     G.insMapNodeM FCStart
     G.insMapNodeM FCEnd
     V.imapM_ impl blocks
-    G.insMapEdgeM (FCStart, FCBlock $ V.head blocks, ())
+    G.insMapEdgeM (FCStart, FCNode $ V.head blocks, ())
   where
     impl i block
-        = let block' = FCBlock block
+        = let block' = FCNode block
           in
               do
                   G.insMapNodeM block'
@@ -247,21 +256,46 @@ genFlowChart blocks = G.run_ G.empty $ do
                           ( block'
                           , if length blocks == i
                               then FCEnd
-                              else FCBlock $ blocks V.! (i + 1)
+                              else FCNode $ blocks V.! (i + 1)
                           , ()
                           )
-    findBlock label = FCBlock $ fromJust $ V.find ((label ==) . V.head . stmts) blocks
+    findBlock label = FCNode $ fromJust $ V.find ((label ==) . V.head . stmts) blocks
 
 data AState = AState
     {
-      cfg :: G.Gr FCNode ()
+      cfg :: G.Gr (FCNode IR) () -- 以基本块为单位的控制流图
+    , stmtCfg :: G.Gr (FCNode Stmt) () -- 以语句为单位的控制流图
     , iDom :: NMap G.Node
     , genMap :: NMap (NSet Expr)
     , prsvMap :: NMap (NSet Expr)
+    , varRname :: M.Map Expr (S.Set Expr) -- ssa重命名变量集合
     }
     deriving (Show, Eq)
 
 type Analysis = StateT AState (MaybeT Cb)
+
+stmtCfgInit :: Analysis ()
+stmtCfgInit = do
+    ist <- get
+    put ist { stmtCfg = impl (cfg ist) }
+  where
+    impl g = G.run_ G.empty $ do
+        mapM_ insIr (snd <$> G.labNodes g)
+        mapM_ (insEdges g) $ G.edges g
+
+    insEdges g (f, t) = insEdge (fromJust $ G.lab g f) (fromJust $ G.lab g t)
+
+    insEdge (FCNode from) (FCNode to) = G.insMapEdgeM
+        (FCNode $ V.last $ stmts from, FCNode $ V.head $ stmts to, ())
+    insEdge FCStart (FCNode to) =
+        G.insMapEdgeM (FCStart, FCNode $ V.head $ stmts to, ())
+    insEdge (FCNode from) FCEnd =
+        G.insMapEdgeM (FCNode $ V.last $ stmts from, FCEnd, ())
+    insEdge _ _ = G.insMapEdgeM (FCStart, FCEnd, ())
+
+    insIr (FCNode ir) = G.insMapNodesM $ fmap FCNode (V.toList (stmts ir))
+    insIr FCEnd       = G.insMapNodesM [FCEnd]
+    insIr FCStart     = G.insMapNodesM [FCStart]
 
 suc :: G.Node -> Analysis [G.Node]
 suc node = G.suc . cfg <$> get <*> pure node

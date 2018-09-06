@@ -10,6 +10,10 @@ void ddff(int i) {
 void ddfff(float i) {
 }
 
+int zzgg(int i) {
+    return i;
+}
+
 void init() {
     zzff d;
     while (true) {
@@ -30,8 +34,15 @@ void init() {
     int j;
     for (i = 0, j = 10; i != 10 and j != 0; ++i, --j) {
     }
+    int z;
+    z = zzgg(i) + i;
     int *p;
     p = &i;
     *p++ = 9;
     return;
+}
+
+void initi() {
+    int i; int j;
+    i = 1; j = i++;
 }
