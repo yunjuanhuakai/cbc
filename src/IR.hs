@@ -19,7 +19,7 @@ data IR = IR
         , retType :: Type
         , params :: [Expr]
         , stmts :: V.Vector Stmt
-        } 
+        }
         deriving (Eq, Ord)
 
 instance Show IR where
@@ -109,12 +109,12 @@ prsv ir = lvalues ir `S.difference` S.fromList (killLvs ir)
 genLvs :: IR -> S.Set Expr
 genLvs ir = S.fromList $ fst <$> filter ((== 1) . snd) (count $ killLvs ir)
 
-data Expr = Uni String Type Expr
-          | Bin String Type Expr Expr
-          | Call Expr [Expr]
-          | Phi Expr Expr -- 这里的Expr只可能为Var，同时该Expr仅出现于SSA形式中，不想换IR了
-          | Addr Expr
-          | Mem Expr
+data Expr = Uni { op :: String, ty :: Type, var :: Expr }
+          | Bin { op :: String, ty :: Type, lv :: Expr, rv :: Expr}
+          | Call { fun :: Expr, ps :: [Expr] }
+          | Phi { lv :: Expr, rv :: Expr } -- 这里的Expr只可能为Var，同时该Expr仅出现于SSA形式中，不想换IR了
+          | Addr { var :: Expr }
+          | Mem { var :: Expr, dom :: Expr }
           | Fun String Int -- 函数，最后一个成员是id
           | Var String Type
           | Str String
@@ -122,13 +122,33 @@ data Expr = Uni String Type Expr
           | F Double
           deriving (Eq, Ord, Generic)
 
+isPtr :: Expr -> Bool
+isPtr (Var _ Ptr) = True
+isPtr _           = False
+
+isStruct :: Expr -> Bool
+isStruct (Var _ Struct{}) = True
+isStruct _ = False
+
+isAddr :: Expr -> Bool
+isAddr (Addr _) = True
+isAddr _        = False
+
+isMem :: Expr -> Bool
+isMem (Mem _ _) = True
+isMeme = False
+
+isBin :: Expr -> Bool
+isBin Bin{} = True
+isBin _ = False
+
 instance Show Expr where
   show (Uni op t e) = op ++ " " ++ show e
   show (Bin op t l r) = show l ++ " " ++ op ++ " " ++ show r
   show (Call fun params) = show fun ++ "(" ++ intercalate ", " (fmap show params) ++ ")"
   show (Phi l r) = "∅(" ++ show l ++ ", " ++ show r ++ ")"
   show (Addr e)  = "&(" ++ show e ++ ")"
-  show (Mem e) = "*(" ++ show e ++ ")"
+  show (Mem e dom) = "*(" ++ show e ++ ", " ++ show dom ++ ")"
   show (Fun name id) = name
   show (Var name t) = name ++ ": " ++ show t
   show (Str s) = "\"" ++ s ++ "\""
@@ -140,25 +160,27 @@ lvalue Mem{} = True
 lvalue Var{} = True
 lvalue _     = False
 
-lvalues :: IR -> S.Set Expr
-lvalues ir = S.unions $ lvaluesByStmt <$> V.toList (stmts ir)
-    where
-        lvaluesByStmt (Assign lv rv) =
-                lvaluesByExpr lv `S.union` lvaluesByExpr rv
-        lvaluesByStmt (CJump cv then_ else_) = lvaluesByExpr cv
-        lvaluesByStmt (Expression ex       ) = lvaluesByExpr ex
-        lvaluesByStmt (Return     (Just e) ) = lvaluesByExpr e
-        lvaluesByStmt _                      = S.empty
+lvalues' :: [Stmt] -> S.Set Expr
+lvalues' stmts = S.unions $ lvaluesByStmt <$> stmts
+ where
+  lvaluesByStmt (Assign lv rv) = lvaluesByExpr lv `S.union` lvaluesByExpr rv
+  lvaluesByStmt (CJump cv then_ else_) = lvaluesByExpr cv
+  lvaluesByStmt (Expression ex       ) = lvaluesByExpr ex
+  lvaluesByStmt (Return     (Just e) ) = lvaluesByExpr e
+  lvaluesByStmt _                      = S.empty
 
-        lvaluesByExpr (Uni _ _ e) = lvaluesByExpr e
-        lvaluesByExpr (Bin _ _ le re) =
-                lvaluesByExpr le `S.union` lvaluesByExpr re
-        lvaluesByExpr (Call fe pes) =
-                S.unions $ lvaluesByExpr fe : (lvaluesByExpr <$> pes)
-        lvaluesByExpr (  Addr e ) = lvaluesByExpr e
-        lvaluesByExpr e@(Mem  me) = S.insert e $ lvaluesByExpr me
-        lvaluesByExpr e@Var{}     = S.insert e S.empty
-        lvaluesByExpr _           = S.empty
+  lvaluesByExpr (Uni _ _ e    ) = lvaluesByExpr e
+  lvaluesByExpr (Bin _ _ le re) = lvaluesByExpr le `S.union` lvaluesByExpr re
+  lvaluesByExpr (Call fe pes) =
+    S.unions $ lvaluesByExpr fe : (lvaluesByExpr <$> pes)
+  lvaluesByExpr (Addr e) = lvaluesByExpr e
+  lvaluesByExpr e@(Mem me dom) =
+    S.insert e (lvaluesByExpr me `S.union` lvaluesByExpr dom)
+  lvaluesByExpr e@Var{} = S.insert e S.empty
+  lvaluesByExpr _       = S.empty
+
+lvalues :: IR -> S.Set Expr
+lvalues ir = lvalues' $ V.toList (stmts ir)
 
 instance Out Stmt
 instance Out Expr

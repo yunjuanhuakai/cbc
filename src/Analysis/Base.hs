@@ -41,11 +41,11 @@ ssa = do
     undefined
   where
     isLab Label{} = True
-    isLab _  = False
+    isLab _       = False
 
     insertIrHand ir phis
-      | isLab $ V.head ir = V.cons (V.head ir) $ phis V.++ V.tail ir
-      | otherwise = phis V.++ ir
+        | isLab $ V.head ir = V.cons (V.head ir) $ phis V.++ V.tail ir
+        | otherwise         = phis V.++ ir
 
     rename = undefined
 
@@ -138,8 +138,8 @@ toBlocks = do
     pure $ G.mapSnd nodeVal <$> filter (isNode . snd) nodes
 
 assignInBlock :: Expr -> FCNode IR -> Bool
-assignInBlock le FCEnd        = False
-assignInBlock le FCStart      = False
+assignInBlock le FCEnd       = False
+assignInBlock le FCStart     = False
 assignInBlock le (FCNode ir) = match $ stmts ir
   where
     match ir
@@ -156,20 +156,43 @@ class Lattices a where
 
 type FlowF a = G.Node -> a -> a
 
-data NSet a = FSet | NSet { nset :: S.Set a }
+data LSet a = FSet | LSet { nset :: S.Set a }
     deriving (Eq, Ord, Show)
 
-instance (Ord a) => Lattices (NSet a) where
+data LMap k v = FMap | LMap { nmap :: M.Map k v }
+    deriving (Eq, Ord, Show)
+
+instance (Ord a) => Lattices (LSet a) where
     top    = FSet
-    bottom = NSet S.empty
+    bottom = LSet S.empty
 
     FSet \/ _ = FSet
     _    \/ FSet = FSet
-    NSet ls \/ NSet rs = NSet $ ls `S.union` rs
+    LSet ls \/ LSet rs = LSet $ ls `S.union` rs
 
     FSet /\ e = e
     e /\ FSet = e
-    NSet ls /\  NSet rs = NSet $ ls `S.intersection` rs
+    LSet ls /\  LSet rs = LSet $ ls `S.intersection` rs
+
+instance (Ord k, Lattices v) => Lattices (LMap k v) where
+    top    = FMap
+    bottom = LMap M.empty
+
+    FMap \/ _ = FMap
+    _    \/ FMap = FMap
+    LMap ls \/ LMap rs = LMap $ foldl' (\m (k,v) ->
+        case M.lookup k rs of
+            Just rv -> M.insert k (v \/ rv) m
+            Nothing -> M.insert k v m
+        ) M.empty $ M.toList ls
+
+    FMap /\ e = e
+    e /\ FMap = e
+    LMap ls /\ LMap rs = LMap $ foldl' (\m (k,v) ->
+        case M.lookup k rs of
+            Just rv -> M.insert k (v /\ rv) m
+            Nothing -> m
+        ) M.empty $ M.toList ls
 
 -- 正向分析需要从start开始，根据当前节点的前置节点来计算lattices
 worklistForward :: (Lattices a, Eq a) => FlowF a -> Analysis (NMap a)
@@ -181,7 +204,8 @@ worklistForward f = do
 worklistBackwark :: (Lattices a, Eq a) => FlowF a -> Analysis (NMap a)
 worklistBackwark f = do
     nodes <- G.dfs' . cfg <$> get
-    worklistIter nodes (/\) top suc pre f
+    worklistIter nodes (\/) bottom suc pre f
+
 
 worklistIter
     :: (Lattices a, Eq a)
@@ -207,7 +231,7 @@ worklistIter nodes aggreF init in' out f = impl nodes $ M.fromList $ fmap
                 ns <- out b
                 impl (bs ++ filter (`notElem` bs) ns) (M.insert b total res)
 
-liveOutF :: (NMap (NSet Expr), NMap (NSet Expr)) -> FlowF (NSet Expr)
+liveOutF :: (NMap (LSet Expr), NMap (LSet Expr)) -> FlowF (LSet Expr)
 liveOutF (genMap, prsvMap) = \node liveOut ->
     let gen  = getEs genMap node
         prsv = getEs prsvMap node
@@ -220,15 +244,15 @@ varSet = do
     (genMap, prsvMap) <-
         foldl'
                 (\(gv, pv) (node, ir) ->
-                    ( M.insert node (NSet $ genLvs ir) gv
-                    , M.insert node (NSet $ prsv ir) pv
+                    ( M.insert node (LSet $ genLvs ir) gv
+                    , M.insert node (LSet $ prsv ir) pv
                     )
                 )
                 (M.empty, M.empty)
             <$> toBlocks
     put $ ast { genMap = genMap, prsvMap = prsvMap }
 
-liveOut :: Analysis (NMap (NSet Expr))
+liveOut :: Analysis (NMap (LSet Expr))
 liveOut = do
     ast <- get
     worklistForward $ liveOutF (genMap ast, prsvMap ast)
@@ -259,15 +283,16 @@ genFlowChart blocks = G.run_ G.empty $ do
                               else FCNode $ blocks V.! (i + 1)
                           , ()
                           )
-    findBlock label = FCNode $ fromJust $ V.find ((label ==) . V.head . stmts) blocks
+    findBlock label =
+        FCNode $ fromJust $ V.find ((label ==) . V.head . stmts) blocks
 
 data AState = AState
     {
       cfg :: G.Gr (FCNode IR) () -- 以基本块为单位的控制流图
     , stmtCfg :: G.Gr (FCNode Stmt) () -- 以语句为单位的控制流图
     , iDom :: NMap G.Node
-    , genMap :: NMap (NSet Expr)
-    , prsvMap :: NMap (NSet Expr)
+    , genMap :: NMap (LSet Expr)
+    , prsvMap :: NMap (LSet Expr)
     , varRname :: M.Map Expr (S.Set Expr) -- ssa重命名变量集合
     }
     deriving (Show, Eq)

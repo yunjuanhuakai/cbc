@@ -320,7 +320,7 @@ transformOpAssign lae op rae = do
   assign a (Addr le)
   assign tmp le
   bin <- transformBin tmp lt op re rt
-  assign (Mem a) bin
+  assign (Mem a $ I 0) bin
   pure bin
 
 transformExpr :: A.Expr -> Cb Expr
@@ -339,20 +339,18 @@ transformExpr e@(A.Member _ name expr) = do
   let t = transformType at
   v   <- transformExpr' expr
   lv  <- toLv t v
-  ptr <- tmpVar Ptr
-  assign ptr <$> (Bin "+" t lv <$> fmap I (offset' at name))
-  pure $ Mem ptr
+  dom <- fmap I (offset' at name)
+  pure $ Mem lv dom
 transformExpr e@(A.PtrMember _ name expr) = do
   (A.CbPtr at) <- queryType expr
   let t = transformType at
   v   <- transformExpr' expr
   lv  <- toLv Ptr v
   tmp <- tmpVar t
-  assign tmp (Mem lv)
+  assign tmp (Mem lv $ I 0)
 
-  ptr <- tmpVar Ptr
-  assign ptr <$> (Bin "+" t tmp <$> fmap I (offset' at name))
-  pure $ Mem ptr
+  dom <- fmap I (offset' at name)
+  pure $ Mem tmp dom
 transformExpr (A.Assign _ le re) = do
   b   <- isStatement
   lhs <- transformExpr' le
@@ -378,12 +376,12 @@ transformExpr (A.Suffix _ op expr   ) = do
     else do
       -- a 存 expr 的引用，tmp 记录 expr 的结果
       -- cont(expr++) -> a = &expr; tmp = *a; *a = *a + 1; cont(tmp)
-      t   <- queryType expr
+      t   <- transformType <$> queryType expr
       a   <- tmpVar Ptr
-      tmp <- tmpVar $ transformType t
+      tmp <- tmpVar $ t
       assign a       (Addr e)
-      assign tmp     (Mem a)
-      assign (Mem a) (Bin "+" Ptr (Mem a) (I 1)) -- TODO 偏移量未计算
+      assign tmp     (Mem a $ I 0)
+      assign (Mem a $ I 0) (Bin "+" t (Mem a $ I 0) (I 1)) -- 没有处理t为Ptr的情况
       pure tmp
 transformExpr (A.Prefix _ op expr) = transformOpAssign
   expr
@@ -409,15 +407,14 @@ transformExpr (A.Cond _ cond then_ else_) = do
   label endLabel
   pure tmp
 transformExpr (A.Address     _ expr) = Addr <$> transformExpr' expr
-transformExpr (A.Dereference _ expr) = Mem <$> transformExpr' expr
+transformExpr (A.Dereference _ expr) = Mem <$> transformExpr' expr <*> pure (I 0)
 transformExpr (A.Arrayref _ e ie   ) = do
   array <- transformExpr' e
   index <- transformExpr' ie
 
   t     <- A.elemType <$> queryType e
   tmp   <- tmpVar Ptr
-  assign tmp $ Bin "+" Ptr array index -- TODO 偏移量未计算
-  pure $ Mem tmp
+  pure $ Mem array index -- TODO 偏移量未计算
 transformExpr (A.Decl _ name id) = do
   ist <- get
   let declMap = handlers ist
